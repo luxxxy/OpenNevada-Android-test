@@ -45,7 +45,6 @@ jobs:
         run: |
           set -euo pipefail
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
-          yes | sdkmanager --licenses
 
       - name: Download Godot 4.7.2 Mono and export templates
         shell: bash
