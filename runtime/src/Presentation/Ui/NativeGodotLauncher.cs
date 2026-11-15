@@ -110,6 +110,11 @@ internal sealed partial class NativeGodotLauncher : Control
 
     public override void _Ready()
     {
+        if (OS.GetName() == "Android")
+        {
+            var permissionsGranted = OS.RequestPermissions();
+            GD.Print($"OPENNV_ANDROID_STORAGE_PERMISSIONS_GRANTED={permissionsGranted}");
+        }
         Configure();
         Name = "OpenNVGodotLauncher";
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
