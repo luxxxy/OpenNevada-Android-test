@@ -87,15 +87,19 @@ jobs:
           set -euo pipefail
           mkdir -p "$HOME/.android" "$HOME/.config/godot"
           if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -noprompt -keystore "$HOME/.android/debug.keystore" \
-              -storepass android -keypass android -alias androiddebugkey \
+            keytool -genkeypair -noprompt -keystore "$HOME/.android/debug.keystore" \\
+              -storepass android -keypass android -alias androiddebugkey \\
               -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
           fi
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
           cat > "$HOME/.config/godot/editor_settings-4.tres" <<EOF
           [gd_resource type="EditorSettings" format=3]
           [resource]
           export/android/android_sdk_path = "$ANDROID_HOME"
           export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
           EOF
 
       - name: Restore, import, and build Android C# assembly
@@ -123,9 +127,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p output
-          godot --headless --path runtime --export-debug "Android Handheld Experimental" "$GITHUB_WORKSPACE/output/OpenNevada-Experimental-ARM64.apk"
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/.android/debug.keystore" \\
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey" \\
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android" \\
+            godot --headless --path runtime --export-debug "Android Handheld Experimental" "$GITHUB_WORKSPACE/output/OpenNevada-Experimental-ARM64.apk"
           test -s output/OpenNevada-Experimental-ARM64.apk
           file output/OpenNevada-Experimental-ARM64.apk
+          APK_CERT="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs output/OpenNevada-Experimental-ARM64.apk | awk '/Signer #1 certificate SHA-256 digest:/{print $NF}')"
+          KEY_CERT="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | awk -F': ' '/SHA256:/{gsub(/:/, "", $2); print $2; exit}')"
+          test -n "$APK_CERT"
+          test -n "$KEY_CERT"
+          test "$APK_CERT" = "$KEY_CERT"
+          echo "Verified APK uses persistent CI signing certificate: $APK_CERT"
           python3 - <<'PY'
           from zipfile import ZipFile
 
