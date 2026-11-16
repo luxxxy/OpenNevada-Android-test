@@ -54,6 +54,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private bool _restoringEnteredStage;
     private Func<RuntimeNativeImageSpace> _imageSpacePresenter = null!;
     private Label? _openingDiagnosticLabel;
+    private Godot.Timer? _openingWatchdog;
     private double _openingDiagnosticElapsed;
     private double _stage90SkipElapsed;
     private bool _stage90SkipAttempted;
@@ -284,7 +285,10 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             ProcessMode = ProcessModeEnum.Always
         };
         watchdog.Timeout += OnOpeningWatchdogTimeout;
+        _openingWatchdog = watchdog;
         AddChild(watchdog);
+        watchdog.Start(0.25);
+        GD.Print($"OPENNV_OPENING_WATCHDOG_STARTED insideTree={watchdog.IsInsideTree()} stopped={watchdog.IsStopped()} timeLeft={watchdog.TimeLeft:F2} processMode={watchdog.ProcessMode}");
         CreateOpeningDiagnosticOverlay();
         UpdateOpeningDiagnosticOverlay();
         _playerPackage = new RuntimeNativePlayerPackage(_pluginStack, _player);
@@ -398,6 +402,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         _openingDiagnosticLabel.Text =
             "OPENNEVADA · NEW GAME CHECKPOINT\n" +
             $"Driver: READY   Elapsed: {_openingDiagnosticElapsed:F1}s   Configured: {configured}\n" +
+            $"Watchdog: {(_openingWatchdog is null ? "missing" : $"stopped={_openingWatchdog.IsStopped()} left={_openingWatchdog.TimeLeft:F2}s mode={_openingWatchdog.ProcessMode}")}\n" +
             $"Quest: {quest}   Stage: {stage}   Blockers: {blockers}\n" +
             $"Quest script: {script}\n" +
             $"Stage 90 skip: attempted={_stage90SkipAttempted} elapsed={_stage90SkipElapsed:F1}s state={_stage90SkipStatus}\n" +
