@@ -25,6 +25,7 @@ internal sealed class FalloutScriptFunction
 
     internal IReadOnlyList<FalloutScriptArgumentKind> Arguments { get; }
     internal bool ReadOnly { get; init; }
+    internal FalloutScriptArgumentKind? Variadic { get; init; }
     internal Func<IReadOnlyList<FalloutScriptArgument>, double> Invoke =>
         arguments => InvokeValue(arguments).Number;
 
@@ -43,7 +44,9 @@ internal sealed class FalloutScriptFunction
     }
 
     internal static FalloutScriptFunction Typed(IReadOnlyList<FalloutScriptArgumentKind> arguments,
-        Func<IReadOnlyList<FalloutScriptArgument>, FalloutScriptValue> invoke) => new(arguments, invoke);
+        Func<IReadOnlyList<FalloutScriptArgument>, FalloutScriptValue> invoke,
+        bool readOnly = false, FalloutScriptArgumentKind? variadic = null) =>
+        new(arguments, invoke) { ReadOnly = readOnly, Variadic = variadic };
 
     internal FalloutScriptValue InvokeValue(IReadOnlyList<FalloutScriptArgument> arguments) =>
         _invokeValue is not null ? _invokeValue(arguments) : _invoke!(arguments);
