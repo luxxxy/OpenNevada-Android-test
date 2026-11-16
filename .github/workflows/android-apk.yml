@@ -75,6 +75,12 @@ jobs:
           test -s "$HOME/.local/share/godot/export_templates/4.7.2.stable.mono/android_release.apk"
           godot --version
 
+      - name: Restore persistent Android debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: opennv-android-debug-keystore-v1
+
       - name: Configure Android export environment
         shell: bash
         run: |
