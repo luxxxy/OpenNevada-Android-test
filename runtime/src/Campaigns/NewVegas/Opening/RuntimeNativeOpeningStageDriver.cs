@@ -321,9 +321,29 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         ApplyEnteredActorCommands();
     }
 
+    private void RecoverOrphanedOpeningPause()
+    {
+        if (!GetTree().Paused || ExecutionError is not null || _moviePlaying ||
+            PendingBlockers.Count != 0 || _nameEntry is not null || _raceSexEntry is not null ||
+            _vigorEntry is not null || _tagSkillEntry is not null || _traitEntry is not null ||
+            _recipeMenu is not null || _barterMenu is not null)
+            return;
+
+        // The opening flow has no active modal owner, but a previous modal left
+        // SceneTree paused. Recover once the watchdog confirms the opening is clear.
+        GD.PushWarning(
+            $"OPENNV_ORPHANED_PAUSE_RECOVERY quest={QuestEditorId} stage={Stage} " +
+            "reason=no-opening-blockers-or-modal-ui action=force-unpause");
+        GetTree().Paused = false;
+        _player.SetModalInput(false);
+        _player.ApplySourceControls(_machine.ControlState);
+        UpdateOpeningDiagnosticOverlay();
+    }
+
     private void OnOpeningWatchdogTimeout()
     {
         _openingDiagnosticElapsed += 0.25;
+        RecoverOrphanedOpeningPause();
         // VCG00 normally progresses 90 -> 95 -> 100. Keep this recovery
         // watchdog separate from gameplay processing and allow it while paused.
         if (!_stage90SkipAttempted &&
