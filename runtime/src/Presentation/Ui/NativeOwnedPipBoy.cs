@@ -29,6 +29,7 @@ internal sealed partial class NativeOwnedPipBoy : Control
     private int _touchIndex = -1;
     private bool _touchOnProjectedButton;
     private bool _touchInputSeen;
+    private Button? _touchCloseButton;
     private readonly RuntimeNativePlayerActor _player;
     private double _openSeconds;
     private double _idleSeconds;
@@ -226,6 +227,7 @@ internal sealed partial class NativeOwnedPipBoy : Control
                 CornerRadiusBottomRight = 10,
             });
             closeButton.Pressed += RequestClose;
+            _touchCloseButton = closeButton;
             AddChild(closeButton);
         }
     }
@@ -276,6 +278,13 @@ internal sealed partial class NativeOwnedPipBoy : Control
             {
                 if (_touchIndex != -1) { GetViewport().SetInputAsHandled(); return; }
                 _touchIndex = touch.Index;
+                if (_touchCloseButton?.GetGlobalRect().HasPoint(touch.Position) == true)
+                {
+                    _touchOnProjectedButton = true;
+                    RequestClose();
+                    GetViewport().SetInputAsHandled();
+                    return;
+                }
                 var target = _buttons.FirstOrDefault(value => value.Button.GetGlobalRect().HasPoint(touch.Position));
                 if (target.Button is not null)
                 {
