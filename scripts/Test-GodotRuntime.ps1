@@ -25,13 +25,18 @@ $policyTargets = @(
     "README.md",
     "AGENTS.md",
     "docs",
-    ".github/workflows",
     "runtime/README.md",
     "runtime/runtime-manifest.json"
 )
 $policyViolations = @(& git -C $repository grep -ni -E "python|prepared content|content tool|asset conversion" -- $policyTargets)
 if ($policyViolations.Count -ne 0) {
     throw "Removed conversion workflow terminology is present:`n$($policyViolations -join "`n")"
+}
+# Android build workflows may use Python for deterministic archive/package
+# verification. Only reject the removed conversion-tool terminology there.
+$workflowPolicyViolations = @(& git -C $repository grep -ni -E "prepared content|content tool|asset conversion" -- ".github/workflows")
+if ($workflowPolicyViolations.Count -ne 0) {
+    throw "Removed conversion workflow terminology is present:`n$($workflowPolicyViolations -join "`n")"
 }
 if (-not (Test-Path -LiteralPath $Godot -PathType Leaf)) {
     throw "Godot executable is missing: $Godot"
