@@ -10,6 +10,7 @@ namespace OpenNV.Runtime.Campaigns.NewVegas.Opening;
 
 internal partial class RuntimeNativeOpeningStageDriver : Node
 {
+    private const string NewGameQuestEditorId = "VCG00";
     private RuntimeNativePlayer _player = null!;
     private FalloutOpeningStageMachine _machine = null!;
     private FalloutOpeningInventoryGrant _openingGrant = null!;
@@ -58,6 +59,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private double _openingDiagnosticElapsed;
     private double _stage90SkipElapsed;
     private bool _stage90SkipAttempted;
+    private bool _stage95CheckpointSaved;
     private string _stage90SkipStatus = "not-started";
     internal string? ExecutionError { get; private set; }
     private readonly List<object> _headTrackingCommands = [];
@@ -326,7 +328,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         // watchdog separate from gameplay processing and allow it while paused.
         if (!_stage90SkipAttempted &&
             _machine is not null &&
-            QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
+            QuestEditorId.Equals(NewGameQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
             Stage == 90 && PendingBlockers.Count == 0 && _raceSexEntry is null &&
             _nameEntry is null && _vigorEntry is null && _tagSkillEntry is null && _traitEntry is null &&
             !_moviePlaying && _recipeMenu is null && _barterMenu is null)
@@ -338,7 +340,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
                 _stage90SkipStatus = "skipping-90-to-95";
                 try
                 {
-                    _machine.EnterScriptStage(FalloutNativeCampaignSave.OpeningQuestEditorId, 95);
+                    _machine.EnterScriptStage(NewGameQuestEditorId, 95);
                     _stage90SkipStatus = "entered-stage-95";
                     GD.PushWarning("OPENNV_NATIVE_OPENING_STAGE_SKIP quest=VCG00 from=90 to=95 reason=stalled-stage-progression");
                     Synchronize();
@@ -352,7 +354,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             }
         }
         else if (_machine is not null &&
-                 (!QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) ||
+                 (!QuestEditorId.Equals(NewGameQuestEditorId, StringComparison.OrdinalIgnoreCase) ||
                   Stage != 90))
         {
             _stage90SkipElapsed = 0;
@@ -395,7 +397,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         };
         checkpoint.Pressed += () =>
         {
-            if (_machine is null || !_machine.QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase))
+            if (_machine is null || !_machine.QuestEditorId.Equals(NewGameQuestEditorId, StringComparison.OrdinalIgnoreCase))
             {
                 ExecutionError = "Stage-95 checkpoint is only valid during VCG00.";
                 UpdateOpeningDiagnosticOverlay();
@@ -405,7 +407,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             {
                 if (_machine.Stage == 90)
                 {
-                    _machine.EnterScriptStage(FalloutNativeCampaignSave.OpeningQuestEditorId, 95);
+                    _machine.EnterScriptStage(NewGameQuestEditorId, 95);
                     Synchronize();
                 }
                 else if (_machine.Stage != 95)
@@ -467,6 +469,25 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             $"timer={(_machine.TimerSeconds?.ToString("R") ?? "none")} " +
             $"blockers={string.Join(',', _machine.PendingBlockers)} " +
             "source=live-qust-scpt-dial-info");
+        if (!_stage95CheckpointSaved &&
+            _machine.QuestEditorId.Equals(NewGameQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
+            _machine.Stage == 95 && _machine.PendingBlockers.Count == 0 &&
+            _nameEntry is null && _raceSexEntry is null && _vigorEntry is null &&
+            _tagSkillEntry is null && _traitEntry is null && !_moviePlaying &&
+            _recipeMenu is null && _barterMenu is null)
+        {
+            try
+            {
+                DiagnosticCheckpointRequested?.Invoke();
+                _stage95CheckpointSaved = true;
+                GD.Print("OPENNV_AUTOSAVE_STAGE95_CREATED quest=VCG00 stage=95");
+            }
+            catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or KeyNotFoundException or IOException)
+            {
+                ExecutionError = error.Message;
+                GD.PushError($"OPENNV_AUTOSAVE_STAGE95_FAILED: {error}");
+            }
+        }
         if (_machine.QuestEditorId == FalloutNativeCampaignSave.OpeningQuestEditorId &&
             _machine.Stage == FalloutNativeCampaignSave.CompletedOpeningStage &&
             !_stage200Saved)
