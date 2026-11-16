@@ -2,6 +2,7 @@ using Godot;
 using OpenNV.Runtime.Content;
 using OpenNV.Runtime.Formats.Gamebryo;
 using OpenNV.Runtime.Gameplay.State;
+using OpenNV.Runtime.InputSystem;
 
 namespace OpenNV.Runtime.World.Cells;
 
@@ -203,8 +204,24 @@ internal partial class RuntimeNativePlayer : CharacterBody3D
 
     public override void _Ready()
     {
-        if (DisplayServer.GetName() != "headless")
+        if (OS.GetName() == "Android")
+        {
+            AddChild(new AndroidTouchControls(this, _configuration.Player.DesktopInput));
+            Input.MouseMode = Input.MouseModeEnum.Visible;
+        }
+        else if (DisplayServer.GetName() != "headless")
             Input.MouseMode = Input.MouseModeEnum.Captured;
+    }
+
+    internal bool TouchInputAllowed =>
+        !_modalInput && _movementEnabled && _lookingEnabled &&
+        _furniturePhase == 0 && _sourceCamera is null && _xr is null;
+
+    internal void ApplyTouchLook(Vector2 pixelDelta)
+    {
+        if (!TouchInputAllowed || pixelDelta == Vector2.Zero)
+            return;
+        ApplyLook(pixelDelta * _configuration.Player.MouseSensitivityRadiansPerPixel);
     }
 
     public override void _UnhandledInput(InputEvent inputEvent)
