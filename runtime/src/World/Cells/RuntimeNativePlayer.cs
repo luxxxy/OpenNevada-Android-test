@@ -257,7 +257,7 @@ internal partial class RuntimeNativePlayer : CharacterBody3D
             GetViewport().SetInputAsHandled();
             return;
         }
-        if (!_modalInput && _activationEnabled && inputEvent.IsActionPressed(input.Activate.Action))
+        if (!_modalInput && (_activationEnabled || _furniturePhase != 0) && inputEvent.IsActionPressed(input.Activate.Action))
         {
             if (_furniturePhase != 0)
             {
