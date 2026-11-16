@@ -1106,6 +1106,7 @@ public partial class RuntimeCoordinator
                 throw new InvalidOperationException("Rendered creation has no world image-space owner."),
             "VCG00",
             0);
+        _nativeOpeningStageDriver.DiagnosticCheckpointRequested += SaveNativeManualSlot;
         AddChild(_nativeOpeningStageDriver);
         GD.Print(
             $"OPENNV_NATIVE_PLAYER_START reference={marker.FormKey} editorId={marker.EditorId} " +
