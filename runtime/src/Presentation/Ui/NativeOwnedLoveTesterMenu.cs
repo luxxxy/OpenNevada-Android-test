@@ -201,7 +201,13 @@ internal sealed partial class NativeOwnedLoveTesterMenu : Control
             native.X.Z, native.Y.Z, native.Z.Z], 1, "LoveTester menu model");
         var width = 480 * Size.X / Size.Y;
         var depth = width > _declaration.LogicalWidthBoundary ? _declaration.WideDepth : _declaration.NarrowDepth;
-        var transform = new Transform3D(basis, GamebryoCoordinate.ConvertVector(new(0, _declaration.VerticalOffset, depth)));
+        // The source terminal was authored for the desktop's fixed menu viewport.
+        // Keep the complete cabinet and card assembly inside a phone display by
+        // reducing its projected size without changing the source camera FOV.
+        const float androidFit = 0.70f;
+        var transform = new Transform3D(
+            basis.Scaled(Vector3.One * androidFit),
+            GamebryoCoordinate.ConvertVector(new(0, _declaration.VerticalOffset * androidFit, depth)));
         _animated.Transform = transform; _cabinet.Transform = transform;
         var radius = FalloutNifBounds.ReadStatic(_source).Radius * _declaration.LightRadiusMultiple;
         var light = new NativeNifPointLight(_camera.GlobalTransform.AffineInverse() * Vector3.Zero,
