@@ -44,8 +44,11 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
 
     public override void _Process(double delta)
     {
-        _root.Visible = _player.TouchInputAllowed;
-        if (!_root.Visible && _joystickHeld)
+        // Keep the controls on screen during furniture and modal UI states.
+        // Movement/look are gated separately so the joystick cannot move the
+        // player while a source interaction owns control.
+        _root.Visible = true;
+        if (!_player.TouchInputAllowed && _joystickHeld)
             ReleaseJoystick();
     }
 
@@ -139,6 +142,7 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
 
     private void UpdateJoystick(Vector2 position)
     {
+        if (!_player.TouchInputAllowed) return;
         var offset = position - _joystickCenter;
         if (offset.Length() > _joystickRadius)
             offset = offset.Normalized() * _joystickRadius;
@@ -177,12 +181,12 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
         _root.AddChild(_lookZone);
         _lookZone.GuiInput += inputEvent =>
         {
-            if (inputEvent is InputEventScreenDrag drag)
+            if (inputEvent is InputEventScreenDrag drag && _player.TouchInputAllowed)
             {
                 _player.ApplyTouchLook(drag.Relative);
                 _lookZone.AcceptEvent();
             }
-            else if (inputEvent is InputEventMouseMotion motion && Input.IsMouseButtonPressed(MouseButton.Left))
+            else if (inputEvent is InputEventMouseMotion motion && _player.TouchInputAllowed && Input.IsMouseButtonPressed(MouseButton.Left))
             {
                 _player.ApplyTouchLook(motion.Relative);
                 _lookZone.AcceptEvent();
@@ -224,11 +228,11 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
         _root.AddChild(button);
         button.ButtonDown += () =>
         {
-            if (hold) SetAction(action, true);
+            if (hold) SendActionEvent(action, true);
             else PulseAction(action);
         };
         if (hold)
-            button.ButtonUp += () => SetAction(action, false);
+            button.ButtonUp += () => SendActionEvent(action, false);
     }
 
     private static StyleBoxFlat ButtonStyle(Color color) => new()
@@ -250,6 +254,14 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
         Input.ParseInputEvent(new InputEventAction { Action = action, Pressed = true, Strength = 1f });
         Input.ParseInputEvent(new InputEventAction { Action = action, Pressed = false });
     }
+
+    private static void SendActionEvent(string action, bool pressed) =>
+        Input.ParseInputEvent(new InputEventAction
+        {
+            Action = action,
+            Pressed = pressed,
+            Strength = pressed ? 1f : 0f
+        });
 
     private static void SetAction(string action, bool pressed)
     {
