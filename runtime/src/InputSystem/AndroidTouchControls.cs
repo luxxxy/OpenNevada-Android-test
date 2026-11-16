@@ -14,6 +14,7 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
     private readonly RuntimeNativePlayer _player;
     private readonly DesktopInputConfiguration _input;
     private Control _root = null!;
+    private Control _gameplayRoot = null!;
     private Panel _joystick = null!;
     private Panel _knob = null!;
     private Control _lookZone = null!;
@@ -35,6 +36,9 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
         _root = new Control { Name = "TouchControls", MouseFilter = Control.MouseFilterEnum.Ignore };
         _root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(_root);
+        _gameplayRoot = new Control { Name = "GameplayTouchControls", MouseFilter = Control.MouseFilterEnum.Ignore };
+        _gameplayRoot.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _root.AddChild(_gameplayRoot);
 
         BuildJoystick();
         BuildLookZone();
@@ -48,6 +52,10 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
         // Movement/look are gated separately so the joystick cannot move the
         // player while a source interaction owns control.
         _root.Visible = true;
+        // The raised Pip-Boy arm occupies the same screen area as the gameplay
+        // HUD. Hide gameplay controls while any modal interface owns input, but
+        // leave the pause/cancel button on the root layer so the Pip-Boy can close.
+        _gameplayRoot.Visible = !_player.ModalInput;
         if (!_player.TouchInputAllowed && _joystickHeld)
             ReleaseJoystick();
     }
@@ -76,7 +84,7 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
             CornerRadiusBottomLeft = 100,
             CornerRadiusBottomRight = 100
         });
-        _root.AddChild(_joystick);
+        _gameplayRoot.AddChild(_joystick);
         _knob = new Panel
         {
             Name = "MovementJoystickKnob",
@@ -178,7 +186,7 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
             AnchorBottom = 0.64f,
             MouseFilter = Control.MouseFilterEnum.Stop
         };
-        _root.AddChild(_lookZone);
+        _gameplayRoot.AddChild(_lookZone);
         _lookZone.GuiInput += inputEvent =>
         {
             if (inputEvent is InputEventScreenDrag drag && _player.TouchInputAllowed)
@@ -239,7 +247,7 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
         button.AddThemeStyleboxOverride("hover", ButtonStyle(new Color(0.15f, 0.19f, 0.10f, 0.94f)));
         button.AddThemeStyleboxOverride("pressed", ButtonStyle(new Color(0.70f, 0.75f, 0.42f, 0.98f)));
         button.AddThemeStyleboxOverride("disabled", ButtonStyle(new Color(0.045f, 0.055f, 0.04f, 0.58f)));
-        _root.AddChild(button);
+        (tooltip == "PAUSE" ? _root : _gameplayRoot).AddChild(button);
         if (action is not null)
         {
             button.ButtonDown += () =>
