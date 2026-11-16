@@ -133,8 +133,8 @@ jobs:
             godot --headless --path runtime --export-debug "Android Handheld Experimental" "$GITHUB_WORKSPACE/output/OpenNevada-Experimental-ARM64.apk"
           test -s output/OpenNevada-Experimental-ARM64.apk
           file output/OpenNevada-Experimental-ARM64.apk
-          APK_CERT="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs output/OpenNevada-Experimental-ARM64.apk | awk '/Signer #1 certificate SHA-256 digest:/{print $NF}')"
-          KEY_CERT="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | awk -F': ' '/SHA256:/{gsub(/:/, "", $2); print $2; exit}')"
+          APK_CERT="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs output/OpenNevada-Experimental-ARM64.apk | awk '/Signer #1 certificate SHA-256 digest:/{gsub(/:/, "", $NF); print tolower($NF)}')"
+          KEY_CERT="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | awk -F': ' '/SHA256:/{gsub(/:/, "", $2); print tolower($2); exit}')"
           test -n "$APK_CERT"
           test -n "$KEY_CERT"
           test "$APK_CERT" = "$KEY_CERT"
