@@ -93,12 +93,20 @@ jobs:
           dotnet restore runtime/OpenNV.csproj -p:GodotTargetPlatform=android
           godot --headless --editor --path runtime --quit
           dotnet build runtime/OpenNV.csproj -p:GodotTargetPlatform=android --no-restore --configuration Debug
-          DLL_PATH="$(find runtime/.godot/mono -type f -name OpenNV.dll | head -n 1)"
-          test -n "$DLL_PATH"
-          echo "Checking compiled assembly: $DLL_PATH"
-          strings -el "$DLL_PATH" | grep -F 'falloutallfnvbsa'
+          python3 - <<'PY'
+          from pathlib import Path
 
-      - name: Export ARM64 debug APK
+          candidates = list(Path("runtime/.godot/mono").rglob("OpenNV.dll"))
+          needle = b"falloutallfnvbsa"
+          needle_utf16 = needle.decode("ascii").encode("utf-16le")
+          matching = [p for p in candidates if needle in p.read_bytes() or needle_utf16 in p.read_bytes()]
+          if not matching:
+              raise SystemExit("ERROR: normalized archive-skip code is missing from every compiled OpenNV.dll")
+          for path in matching:
+              print(f"Verified compiled assembly: {path}")
+          PY
+
+      - name: Export and verify ARM64 debug APK
         shell: bash
         run: |
           set -euo pipefail
@@ -106,20 +114,26 @@ jobs:
           godot --headless --path runtime --export-debug "Android Handheld Experimental" "$GITHUB_WORKSPACE/output/OpenNevada-Experimental-ARM64.apk"
           test -s output/OpenNevada-Experimental-ARM64.apk
           file output/OpenNevada-Experimental-ARM64.apk
-          APK_DLL="$(unzip -Z1 output/OpenNevada-Experimental-ARM64.apk | grep '/OpenNV.dll
-          sha256sum output/OpenNevada-Experimental-ARM64.apk
+          python3 - <<'PY'
+          from zipfile import ZipFile
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenNevada-Experimental-Android-ARM64
-          path: output/OpenNevada-Experimental-ARM64.apk
-          if-no-files-found: error
-          retention-days: 14
- | head -n 1)"
-          test -n "$APK_DLL"
-          echo "Checking packaged assembly: $APK_DLL"
-          unzip -p output/OpenNevada-Experimental-ARM64.apk "$APK_DLL" | strings -el | grep -F 'falloutallfnvbsa'
+          apk = "output/OpenNevada-Experimental-ARM64.apk"
+          needle = b"falloutallfnvbsa"
+          needle_utf16 = needle.decode("ascii").encode("utf-16le")
+          with ZipFile(apk) as archive:
+              dlls = [name for name in archive.namelist() if name.endswith("/OpenNV.dll") or name == "OpenNV.dll"]
+              if not dlls:
+                  raise SystemExit("ERROR: OpenNV.dll was not found inside the exported APK")
+              verified = []
+              for name in dlls:
+                  data = archive.read(name)
+                  if needle in data or needle_utf16 in data:
+                      verified.append(name)
+              if not verified:
+                  raise SystemExit("ERROR: exported APK does not contain the normalized archive-skip code")
+              for name in verified:
+                  print(f"Verified packaged assembly: {name}")
+          PY
           sha256sum output/OpenNevada-Experimental-ARM64.apk
 
       - name: Upload APK artifact
