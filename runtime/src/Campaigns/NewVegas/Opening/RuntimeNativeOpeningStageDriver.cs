@@ -336,10 +336,15 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         var quest = machine?.QuestEditorId ?? "not-configured";
         var stage = machine?.Stage.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a";
         var blockers = machine is null ? "n/a" : string.Join(",", machine.PendingBlockers);
+        var scriptProgress = machine is null ? null : _scripts.ClaimedProgress(_controls.Stage(QuestEditorId, Stage).Quest);
+        var script = scriptProgress is { } progress
+            ? $"runs={progress.Executions} next={progress.Remaining:F2}s error={progress.Error ?? "none"}"
+            : "not-found";
         _openingDiagnosticLabel.Text =
             "OPENNEVADA · NEW GAME CHECKPOINT\n" +
             $"Driver: READY   Elapsed: {_openingDiagnosticElapsed:F1}s   Configured: {configured}\n" +
             $"Quest: {quest}   Stage: {stage}   Blockers: {blockers}\n" +
+            $"Quest script: {script}\n" +
             $"Player: {_player is not null}   Cell: {_activeCell}   Movie: {_moviePlaying}   " +
             $"Race/sex UI: {_raceSexEntry is not null}   Name UI: {_nameEntry is not null}\n" +
             $"Error: {ExecutionError ?? "none"}";
