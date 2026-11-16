@@ -144,7 +144,7 @@ internal partial class RuntimeNativeOpeningStageDriver
     {
         get
         {
-            var data = _pluginStack.GetEffective(_raceSexContract.Player).ReadSubrecords().Single(field => field.Signature == "ACBS").Data;
+            var data = _pluginStack.GetEffective(_raceSexContract.Player).ReadSubrecords().Single(subrecord => subrecord.Signature == "ACBS").Data;
             if (data.Length != 24) throw new InvalidDataException("Player ACBS extent is invalid.");
             var level = System.Buffers.Binary.BinaryPrimitives.ReadInt16LittleEndian(data.Span[8..]);
             return level >= 1 ? level : throw new InvalidDataException("Initial player level is not positive.");
