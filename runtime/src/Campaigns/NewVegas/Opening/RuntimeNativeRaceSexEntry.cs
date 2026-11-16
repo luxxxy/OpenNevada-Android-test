@@ -105,6 +105,7 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
         GetViewport().SizeChanged += Resize;
         _pausedTree = GetTree(); _previousPause = _pausedTree.Paused; _pausedTree.Paused = true;
         GD.Print($"OPENNV_CREATION_DIAG phase=tree_paused previous={_previousPause}");
+        GD.Print($"OPENNV_PAUSE_ACQUIRE owner=race-sex previous={_previousPause} current={_pausedTree.Paused}");
         _background = imageSpace?.BeginMenuBackground(records, FalloutMenuBackgroundKind.Popup);
         Input.MouseMode = Input.MouseModeEnum.Visible;
         GD.Print("OPENNV_CREATION_DIAG phase=preview_begin");
@@ -290,6 +291,7 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
     {
         _background?.Dispose(); _background = null;
         if (_pausedTree is null) return;
+        GD.Print($"OPENNV_PAUSE_RELEASE owner=race-sex restore={_previousPause} currentBefore={_pausedTree.Paused}");
         _pausedTree.Paused = _previousPause; _pausedTree = null;
     }
     public override void _ExitTree() { GetViewport().SizeChanged -= Resize; ReleasePause(); }
