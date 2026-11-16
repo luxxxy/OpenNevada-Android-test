@@ -327,10 +327,11 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private void UpdateOpeningDiagnosticOverlay()
     {
         if (_openingDiagnosticLabel is null) return;
-        var configured = _machine is not null;
-        var quest = configured ? _machine.QuestEditorId : "not-configured";
-        var stage = configured ? _machine.Stage.ToString(System.Globalization.CultureInfo.InvariantCulture) : "n/a";
-        var blockers = configured ? string.Join(",", _machine.PendingBlockers) : "n/a";
+        var machine = _machine;
+        var configured = machine is not null;
+        var quest = machine?.QuestEditorId ?? "not-configured";
+        var stage = machine?.Stage.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a";
+        var blockers = machine is null ? "n/a" : string.Join(",", machine.PendingBlockers);
         _openingDiagnosticLabel.Text =
             "OPENNEVADA · NEW GAME CHECKPOINT\n" +
             $"Driver: READY   Elapsed: {_openingDiagnosticElapsed:F1}s   Configured: {configured}\n" +
