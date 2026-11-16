@@ -25,8 +25,8 @@ internal static class GodotSaveMigrationBundle
         PropertyNameCaseInsensitive = true,
     };
 
-    private sealed record ManifestFile(string Path, long Length, string Sha256);
-    private sealed record Manifest(
+    internal sealed record ManifestFile(string Path, long Length, string Sha256);
+    internal sealed record Manifest(
         string Schema,
         string CampaignId,
         DateTime CreatedUtc,
@@ -263,6 +263,34 @@ internal static class GodotSaveMigrationBundle
         }
 
         return new(importedSlots, importedScriptFiles, skippedScriptConflicts);
+    }
+
+    internal static GodotSaveMigrationResult ImportLegacySaveFile(
+        string campaignId,
+        string canonicalSavePath,
+        string legacySavePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(campaignId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(canonicalSavePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(legacySavePath);
+        var bytes = File.ReadAllBytes(Path.GetFullPath(legacySavePath));
+        ValidateSaveBytes(bytes);
+        var savePath = Path.GetFullPath(canonicalSavePath);
+        var slotDirectory = savePath + RuntimeSaveSlotCatalog.SlotDirectorySuffix;
+        Directory.CreateDirectory(slotDirectory);
+        var destination = Path.Combine(slotDirectory, Guid.NewGuid().ToString("N") + ".json");
+        var temporary = destination + ".tmp";
+        try
+        {
+            File.WriteAllBytes(temporary, bytes);
+            File.Move(temporary, destination);
+        }
+        finally
+        {
+            if (File.Exists(temporary))
+                File.Delete(temporary);
+        }
+        return new(1, 0, 0);
     }
 
     private static void ValidateSaveFile(string path) =>
