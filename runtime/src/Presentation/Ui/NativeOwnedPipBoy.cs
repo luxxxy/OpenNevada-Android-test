@@ -194,6 +194,39 @@ internal sealed partial class NativeOwnedPipBoy : Control
             AddChild(hints);
             hints.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomWide);
             hints.OffsetTop = -34; hints.OffsetBottom = -8;
+
+            var closeButton = new Button
+            {
+                Name = "ClosePipBoyTouchButton",
+                Text = "×",
+                AnchorLeft = 1,
+                AnchorRight = 1,
+                AnchorTop = 0,
+                AnchorBottom = 0,
+                OffsetLeft = -72,
+                OffsetRight = -14,
+                OffsetTop = 14,
+                OffsetBottom = 72,
+                FocusMode = FocusModeEnum.None,
+                MouseFilter = MouseFilterEnum.Stop,
+            };
+            closeButton.AddThemeFontSizeOverride("font_size", 32);
+            closeButton.AddThemeColorOverride("font_color", new Color(0.82f, 0.9f, 0.65f));
+            closeButton.AddThemeStyleboxOverride("normal", new StyleBoxFlat
+            {
+                BgColor = new Color(0.035f, 0.055f, 0.04f, 0.88f),
+                BorderColor = new Color(0.62f, 0.76f, 0.48f, 0.9f),
+                BorderWidthLeft = 1,
+                BorderWidthTop = 1,
+                BorderWidthRight = 1,
+                BorderWidthBottom = 1,
+                CornerRadiusTopLeft = 10,
+                CornerRadiusTopRight = 10,
+                CornerRadiusBottomLeft = 10,
+                CornerRadiusBottomRight = 10,
+            });
+            closeButton.Pressed += RequestClose;
+            AddChild(closeButton);
         }
     }
     public override void _Process(double delta)
