@@ -255,7 +255,7 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
         GD.PushError($"OPENNV_NATIVE_CREATION_UNBOUND {error}");
         GD.PushError($"OPENNV_CREATION_DIAG phase=failed page={_page} previewRevision={_previewRevision} " +
             $"viewport={GetViewport().GetVisibleRect().Size} deviceVisible={_device?.Visible} " +
-            $"screenVisible={_screen?.Visible} content={_screen?.ContentView.Size}");
+            $"screenAttached={_screen?.IsInsideTree()} content={_screen?.ContentView.Size}");
         // Expose the failure on-device and release the pause owned by this menu.
         var backdrop = new ColorRect
         {
