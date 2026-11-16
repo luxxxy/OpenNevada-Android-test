@@ -101,7 +101,7 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
         GD.Print($"OPENNV_CREATION_DIAG phase=device_added visible={_device.Visible} size={_device.Size}");
         _screen = new(_device, records, _settings, Fail); AddChild(_screen);
         _screen.Menu.Navigate += Navigate;
-        GD.Print($"OPENNV_CREATION_DIAG phase=screen_added visible={_screen.Visible} content={_screen.ContentView.Size}");
+        GD.Print($"OPENNV_CREATION_DIAG phase=screen_added attached={_screen.IsInsideTree()} content={_screen.ContentView.Size}");
         GetViewport().SizeChanged += Resize;
         _pausedTree = GetTree(); _previousPause = _pausedTree.Paused; _pausedTree.Paused = true;
         GD.Print($"OPENNV_CREATION_DIAG phase=tree_paused previous={_previousPause}");
