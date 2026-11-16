@@ -121,3 +121,33 @@ not claim parity by leaving the Android APK on the old VM.
   libraries.
 - Device testing confirms a real owned FNV save can continue after a cold
   process restart; no old package or save is removed during testing.
+
+
+## Godot 4.8 Android template availability (verified 2026-11-17)
+
+The earlier uncertainty about whether the PC Godot baseline has Android Mono
+templates is resolved. The published Godot `4.8-dev7` release includes all
+three required assets:
+
+- `Godot_v4.8-dev7_mono_linux_x86_64.zip` (Mono editor used by Linux CI)
+- `Godot_v4.8-dev7_mono_export_templates.tpz` (Mono export templates)
+- `godot-lib.4.8.dev7.mono.template_release.aar` (Android Mono library template)
+
+The release also publishes the matching Android export templates in its Mono
+template bundle. This confirms that Godot 4.8-dev7 is a technically plausible
+shared baseline; it does **not** yet prove that this Android project restores,
+builds, and exports successfully with it.
+
+A compatibility-only toolchain change has therefore been committed to this
+PR branch, not to Android `main`:
+
+- `global.json`: .NET SDK `10.0.401`
+- `runtime/OpenNV.csproj`: `Godot.NET.Sdk/4.8.0-dev.7`, `net10.0`
+- Android workflow: matching .NET/Godot Mono editor and export templates,
+  ARM64 export verification, and a branch trigger for this parity PR.
+
+The next gate is the actual GitHub Actions run. If it passes, the platform
+toolchain barrier is cleared and M1 source reconciliation can begin. If it
+fails, the failure must be fixed or the baseline reconsidered before importing
+the PC runtime. No PC gameplay code has been copied yet, and no APK from this
+toolchain change has been offered as device-ready.
