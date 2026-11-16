@@ -72,12 +72,8 @@ internal static class GodotSaveMigrationBundle
         var scriptCount = 0;
         if (Directory.Exists(scriptDirectory))
         {
-            foreach (var file in Directory.EnumerateFiles(scriptDirectory, "*", SearchOption.AllDirectories)
-                         .OrderBy(path => path, StringComparer.Ordinal))
+            foreach (var file in EnumerateSafeFiles(scriptDirectory))
             {
-                var attributes = File.GetAttributes(file);
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
-                    throw new InvalidDataException("Script configuration contains a linked file and cannot be exported safely.");
                 var relative = Path.GetRelativePath(scriptDirectory, file).Replace('\\', '/');
                 ValidateRelativePath(relative);
                 files.Add(($"script-config/{relative}", file));
@@ -87,6 +83,8 @@ internal static class GodotSaveMigrationBundle
 
         if (saveCount == 0)
             throw new FileNotFoundException("There are no New Vegas saves to export yet.");
+        if (files.Count > MaximumEntries)
+            throw new InvalidDataException("The backup contains more than 512 files.");
 
         long totalBytes = 0;
         var manifestFiles = new List<ManifestFile>(files.Count);
@@ -150,6 +148,8 @@ internal static class GodotSaveMigrationBundle
 
         var manifestEntry = archive.GetEntry("manifest.json") ??
             throw new InvalidDataException("The backup has no manifest.");
+        if (manifestEntry.Length > 1024 * 1024)
+            throw new InvalidDataException("The backup manifest is too large.");
         Manifest manifest;
         using (var reader = new StreamReader(manifestEntry.Open()))
             manifest = JsonSerializer.Deserialize<Manifest>(reader.ReadToEnd(), JsonOptions) ??
@@ -293,6 +293,24 @@ internal static class GodotSaveMigrationBundle
                 File.Delete(temporary);
         }
         return new(1, 0, 0);
+    }
+
+    private static IEnumerable<string> EnumerateSafeFiles(string directory)
+    {
+        foreach (var path in Directory.EnumerateFileSystemEntries(directory)
+                     .OrderBy(value => value, StringComparer.Ordinal))
+        {
+            var attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("Script configuration contains a linked path and cannot be exported safely.");
+            if ((attributes & FileAttributes.Directory) != 0)
+            {
+                foreach (var nested in EnumerateSafeFiles(path))
+                    yield return nested;
+            }
+            else
+                yield return path;
+        }
     }
 
     private static void ValidateSaveFile(string path) =>
