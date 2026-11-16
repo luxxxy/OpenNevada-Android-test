@@ -16,7 +16,6 @@ internal static class FalloutScriptLocals
         if (source.Signature != "WEAP") throw new InvalidDataException("Weapon script metadata requires a winning WEAP.");
         // Cached metadata must not outlive the source reader or hide a changed
         // source extent; retain the same read guard as ordinary field reads.
-        source.Plugin.ValidateReadSource();
         return WeaponScripts.GetOrCreateValue(records).GetOrAdd(weapon,
             _ => new(() => AttachedScript(records, source), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
