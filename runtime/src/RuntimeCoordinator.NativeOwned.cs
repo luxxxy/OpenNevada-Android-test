@@ -52,6 +52,7 @@ public partial class RuntimeCoordinator
     private FalloutNativeCampaignRestore? _nativeOpeningRestore;
     private RuntimeNativeOpeningStageDriver? _nativeOpeningStageDriver;
     private bool _nativeContinueOpening;
+    private bool _nativeExteriorCheckpointSaved;
     private readonly FalloutImageSpaceState _nativeImageSpaceState = new();
     private readonly Dictionary<string, string> _nativeActorDivergences = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _nativeReferenceDivergences = new(StringComparer.Ordinal);
@@ -952,6 +953,20 @@ public partial class RuntimeCoordinator
         try
         {
             _nativeOpeningStageDriver!.PersistWorldState(targetScene.Cell.FormKey);
+            if (!_nativeExteriorCheckpointSaved && active.Cell.Worldspace is null && targetScene.Cell.Worldspace is not null)
+            {
+                try
+                {
+                    var exteriorSlot = NativeSaveSlots().Create(() =>
+                        _nativeOpeningStageDriver!.PersistWorldState(targetScene.Cell.FormKey));
+                    _nativeExteriorCheckpointSaved = true;
+                    GD.Print($"OPENNV_NATIVE_EXTERIOR_CHECKPOINT_CREATED id={exteriorSlot.Id} cell={targetScene.Cell.FormKey} save={exteriorSlot.Path}");
+                }
+                catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or IOException or KeyNotFoundException)
+                {
+                    GD.PushError($"OPENNV_NATIVE_EXTERIOR_CHECKPOINT_FAILURE cell={targetScene.Cell.FormKey}: {error}");
+                }
+            }
             RuntimePerformanceObserver.Mark("door-committed-source-retirement", _nativeNifPrototypes.Count);
             await NativeCellPresentationHandoff.Retire(this, current, targetRoot, () =>
             {
@@ -1106,6 +1121,7 @@ public partial class RuntimeCoordinator
                 throw new InvalidOperationException("Rendered creation has no world image-space owner."),
             "VCG00",
             0);
+        _nativeOpeningStageDriver.DiagnosticCheckpointRequested += SaveNativeManualSlot;
         AddChild(_nativeOpeningStageDriver);
         GD.Print(
             $"OPENNV_NATIVE_PLAYER_START reference={marker.FormKey} editorId={marker.EditorId} " +

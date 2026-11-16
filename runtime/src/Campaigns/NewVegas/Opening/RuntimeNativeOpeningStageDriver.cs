@@ -10,6 +10,7 @@ namespace OpenNV.Runtime.Campaigns.NewVegas.Opening;
 
 internal partial class RuntimeNativeOpeningStageDriver : Node
 {
+    private const string NewGameQuestEditorId = "VCG00";
     private RuntimeNativePlayer _player = null!;
     private FalloutOpeningStageMachine _machine = null!;
     private FalloutOpeningInventoryGrant _openingGrant = null!;
@@ -53,6 +54,10 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private FalloutSkyLightingState? _skyLighting;
     private bool _restoringEnteredStage;
     private Func<RuntimeNativeImageSpace> _imageSpacePresenter = null!;
+    private Label? _openingDiagnosticLabel;
+    private Godot.Timer? _openingWatchdog;
+    private double _openingDiagnosticElapsed;
+    private bool _stage95CheckpointSaved;
     internal string? ExecutionError { get; private set; }
     private readonly List<object> _headTrackingCommands = [];
     internal object[] HeadTrackingCommands => _headTrackingCommands.ToArray();
@@ -62,6 +67,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     internal float? TimerSeconds => _machine.TimerSeconds;
     internal IReadOnlyCollection<string> PendingBlockers => _machine.PendingBlockers;
     internal FalloutFormKey ActiveCell => _activeCell;
+    internal event Action? DiagnosticCheckpointRequested;
     internal bool HasCampaignSave => File.Exists(_savePath);
     internal string PlayerName => _playerName;
     internal int PlayerLevel => SourcePlayerLevel;
@@ -232,7 +238,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
 
     public override void _Process(double delta)
     {
-        if (ExecutionError is not null) return;
+        if (GetTree().Paused || ExecutionError is not null) return;
         try
         {
             _ingestibles.Advance(delta);
@@ -259,10 +265,32 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
                 return;
             }
         }
+
     }
 
     public override void _Ready()
     {
+        // Keep the checkpoint HUD and recovery watchdog alive while character-creation menus pause the tree.
+        ProcessMode = ProcessModeEnum.Always;
+        SetProcess(true);
+        // Use an independent always-processing Timer for the checkpoint/watchdog.
+        // This avoids relying on the gameplay driver's _Process callback while
+        // the SceneTree is paused by a modal character-creation screen.
+        var watchdog = new Godot.Timer
+        {
+            Name = "OpeningDiagnosticWatchdog",
+            WaitTime = 0.25,
+            OneShot = false,
+            Autostart = true,
+            ProcessMode = ProcessModeEnum.Always
+        };
+        watchdog.Timeout += OnOpeningWatchdogTimeout;
+        _openingWatchdog = watchdog;
+        AddChild(watchdog);
+        watchdog.Start(0.25);
+        GD.Print($"OPENNV_OPENING_WATCHDOG_STARTED insideTree={watchdog.IsInsideTree()} stopped={watchdog.IsStopped()} timeLeft={watchdog.TimeLeft:F2} processMode={watchdog.ProcessMode}");
+        CreateOpeningDiagnosticOverlay();
+        UpdateOpeningDiagnosticOverlay();
         _playerPackage = new RuntimeNativePlayerPackage(_pluginStack, _player);
         _speech = new RuntimeNativeSpeech();
         _speech.InfoCompleted += _ =>
@@ -290,9 +318,127 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         ApplyEnteredActorCommands();
     }
 
+    private void RecoverOrphanedOpeningPause()
+    {
+        if (!GetTree().Paused || ExecutionError is not null || _moviePlaying ||
+            PendingBlockers.Count != 0 || _nameEntry is not null || _raceSexEntry is not null ||
+            _vigorEntry is not null || _tagSkillEntry is not null || _traitEntry is not null ||
+            _recipeMenu is not null || _barterMenu is not null)
+            return;
+
+        // The opening flow has no active modal owner, but a previous modal left
+        // SceneTree paused. Recover once the watchdog confirms the opening is clear.
+        GD.PushWarning(
+            $"OPENNV_ORPHANED_PAUSE_RECOVERY quest={QuestEditorId} stage={Stage} " +
+            "reason=no-opening-blockers-or-modal-ui action=force-unpause");
+        GetTree().Paused = false;
+        _player.SetModalInput(false);
+        _player.ApplySourceControls(_machine.ControlState);
+        UpdateOpeningDiagnosticOverlay();
+    }
+
+    private void OnOpeningWatchdogTimeout()
+    {
+        _openingDiagnosticElapsed += 0.25;
+        RecoverOrphanedOpeningPause();
+        UpdateOpeningDiagnosticOverlay();
+    }
+
+    private void CreateOpeningDiagnosticOverlay()
+    {
+        var layer = new CanvasLayer { Name = "OpeningDiagnosticOverlay", Layer = 250 };
+        layer.ProcessMode = ProcessModeEnum.Always;
+        AddChild(layer);
+        var backdrop = new ColorRect
+        {
+            Name = "Background",
+            Color = new Color(0.015f, 0.02f, 0.03f, 0.90f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        backdrop.SetAnchorsPreset(Control.LayoutPreset.TopRight);
+        backdrop.OffsetLeft = -820;
+        backdrop.OffsetTop = 12;
+        backdrop.OffsetRight = -12;
+        backdrop.OffsetBottom = 472;
+        layer.AddChild(backdrop);
+
+        _openingDiagnosticLabel = new Label
+        {
+            Name = "Checkpoint",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        _openingDiagnosticLabel.SetAnchorsPreset(Control.LayoutPreset.TopRight);
+        _openingDiagnosticLabel.OffsetLeft = -800;
+        _openingDiagnosticLabel.OffsetTop = 24;
+        _openingDiagnosticLabel.OffsetRight = -28;
+        _openingDiagnosticLabel.OffsetBottom = 450;
+        _openingDiagnosticLabel.AddThemeColorOverride("font_color", Colors.White);
+        _openingDiagnosticLabel.AddThemeFontSizeOverride("font_size", 16);
+        layer.AddChild(_openingDiagnosticLabel);
+
+        var toggle = new Button
+        {
+            Name = "ToggleDiagnostics",
+            Text = "DEBUG  ▾",
+            ToggleMode = true,
+            ButtonPressed = false,
+            FocusMode = Control.FocusModeEnum.None
+        };
+        toggle.SetAnchorsPreset(Control.LayoutPreset.TopRight);
+        toggle.OffsetLeft = -172;
+        toggle.OffsetTop = 12;
+        toggle.OffsetRight = -12;
+        toggle.OffsetBottom = 54;
+        layer.AddChild(toggle);
+        backdrop.Visible = false;
+        _openingDiagnosticLabel.Visible = false;
+        toggle.Toggled += visible =>
+        {
+            backdrop.Visible = visible;
+            _openingDiagnosticLabel.Visible = visible;
+            toggle.Text = visible ? "DEBUG  ▴" : "DEBUG  ▾";
+        };
+        GD.Print("OPENNV_OPENING_CHECKPOINT_OVERLAY_CREATED");
+    }
+
+    private void UpdateOpeningDiagnosticOverlay()
+    {
+        if (_openingDiagnosticLabel is null) return;
+        var machine = _machine;
+        var configured = machine is not null;
+        var quest = machine?.QuestEditorId ?? "not-configured";
+        var stage = machine?.Stage.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a";
+        var blockers = machine is null ? "n/a" : string.Join(",", machine.PendingBlockers);
+        var scriptProgress = machine is null ? null : _scripts.ClaimedProgress(_controls.Stage(QuestEditorId, Stage).Quest);
+        var script = scriptProgress is { } progress
+            ? $"runs={progress.Executions} next={progress.Remaining:F2}s error={progress.Error ?? "none"} cmds={progress.Commands}"
+            : "not-found";
+        var hasSessionLayer = GetTree().Root.FindChild("NativeSessionLayer", true, false) is not null;
+        var hasPipBoyLayer = GetTree().Root.FindChild("NativePipBoyLayer", true, false) is not null;
+        var hasContainerLayer = GetTree().Root.FindChild("NativeContainerLayer", true, false) is not null;
+        var focusOwner = GetViewport().GuiGetFocusOwner()?.Name ?? "none";
+        _openingDiagnosticLabel.Text =
+            "OPENNEVADA · NEW GAME CHECKPOINT\n" +
+            $"Driver: READY   Elapsed: {_openingDiagnosticElapsed:F1}s   Configured: {configured}\n" +
+            $"Watchdog: {(_openingWatchdog is null ? "missing" : $"stopped={_openingWatchdog.IsStopped()} left={_openingWatchdog.TimeLeft:F2}s mode={_openingWatchdog.ProcessMode}")}\n" +
+            $"Quest: {quest}   Stage: {stage}   Blockers: {blockers}\n" +
+            $"Quest script: {script}\n" +
+            "Stage skip: disabled   Quest progression: native\n" +
+            $"Tree paused: {GetTree().Paused}   Driver process: {IsProcessing()}   Player physics: {_player?.IsPhysicsProcessing() ?? false}\n" +
+            $"Player: {_player is not null}   Modal input: {_player?.ModalInput ?? false}   " +
+            $"Movement: {machine?.ControlState.Movement ?? false}   Looking: {machine?.ControlState.Looking ?? false}\n" +
+            $"Cell: {_activeCell}   Movie: {_moviePlaying}   Race/sex UI: {_raceSexEntry is not null}   Name UI: {_nameEntry is not null}\n" +
+            $"Vigor UI: {_vigorEntry is not null}   Tag-skill UI: {_tagSkillEntry is not null}   Trait UI: {_traitEntry is not null}\n" +
+            $"Recipe UI: {_recipeMenu is not null}   Barter UI: {_barterMenu is not null}\n" +
+            $"Session menu: {hasSessionLayer}   Pip-Boy: {hasPipBoyLayer}   Container: {hasContainerLayer}\n" +
+            $"Error: {ExecutionError ?? "none"}";
+    }
+
     private void Synchronize()
     {
         ApplyEnteredActorCommands();
+        UpdateOpeningDiagnosticOverlay();
         if (ExecutionError is not null) return;
         _player.ApplySourceControls(_machine.ControlState);
         SynchronizeNameEntry();
@@ -306,6 +452,25 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             $"timer={(_machine.TimerSeconds?.ToString("R") ?? "none")} " +
             $"blockers={string.Join(',', _machine.PendingBlockers)} " +
             "source=live-qust-scpt-dial-info");
+        if (!_stage95CheckpointSaved &&
+            _machine.QuestEditorId.Equals(NewGameQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
+            _machine.Stage == 95 && _machine.PendingBlockers.Count == 0 &&
+            _nameEntry is null && _raceSexEntry is null && _vigorEntry is null &&
+            _tagSkillEntry is null && _traitEntry is null && !_moviePlaying &&
+            _recipeMenu is null && _barterMenu is null)
+        {
+            try
+            {
+                DiagnosticCheckpointRequested?.Invoke();
+                _stage95CheckpointSaved = true;
+                GD.Print("OPENNV_AUTOSAVE_STAGE95_CREATED quest=VCG00 stage=95");
+            }
+            catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or KeyNotFoundException or IOException)
+            {
+                ExecutionError = error.Message;
+                GD.PushError($"OPENNV_AUTOSAVE_STAGE95_FAILED: {error}");
+            }
+        }
         if (_machine.QuestEditorId == FalloutNativeCampaignSave.OpeningQuestEditorId &&
             _machine.Stage == FalloutNativeCampaignSave.CompletedOpeningStage &&
             !_stage200Saved)
@@ -423,11 +588,14 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         }
         if (_raceSexEntry is not null)
             return;
+        GD.Print($"OPENNV_CREATION_DIAG phase=blocker_detected quest={_machine.QuestEditorId} stage={_machine.Stage} blockers={string.Join(',', _machine.PendingBlockers)}");
         _raceSexEntry = new RuntimeNativeRaceSexEntry();
         AddChild(_raceSexEntry);
         _raceSexEntry.Accepted += AcceptCharacter;
         _raceSexEntry.Failed += error => ExecutionError = error.Message;
+        GD.Print("OPENNV_CREATION_DIAG phase=entry_node_added");
         _raceSexEntry.Configure(_raceSexContract, _character, _pluginStack, _imageSpacePresenter());
+        GD.Print($"OPENNV_CREATION_DIAG phase=configure_returned state={_raceSexEntry.State}");
         GD.Print(
             $"OPENNV_NATIVE_RACESEX_OPEN quest={_machine.QuestEditorId} stage={_machine.Stage} " +
             $"race={_character.RaceEditorId}/{_character.RaceRuntimeFormId:x8} " +

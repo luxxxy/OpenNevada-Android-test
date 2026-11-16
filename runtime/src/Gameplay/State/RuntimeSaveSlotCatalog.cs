@@ -39,6 +39,8 @@ internal sealed class RuntimeSaveSlotCatalog
         foreach (var path in paths)
         {
             try { slots.Add(ReadMetadata(path)); }
+            catch (InvalidDataException error) when (rejected is not null)
+            { rejected(path, error); }
             catch (Exception error) when (rejected is not null && error is IOException or JsonException or InvalidOperationException)
             { rejected(path, error); }
         }

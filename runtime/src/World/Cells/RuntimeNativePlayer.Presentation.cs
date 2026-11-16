@@ -67,6 +67,21 @@ internal partial class RuntimeNativePlayer
         return false;
     }
 
+    internal bool HasThirdPersonViewControl =>
+        _xr is null && _sourceCamera is null && _furniturePhase == 0 &&
+        GetMeta("opennv_source_pointofview_enabled", true).AsBool();
+
+    internal bool ToggleThirdPersonView()
+    {
+        if (_xr is not null || _sourceCamera is not null || _furniturePhase != 0 ||
+            !GetMeta("opennv_source_pointofview_enabled", true).AsBool())
+            return false;
+        _thirdPersonMode = !_thirdPersonMode;
+        PublishThirdPersonCamera();
+        GD.Print($"OPENNV_THIRD_PERSON_TOUCH enabled={_thirdPersonMode}");
+        return true;
+    }
+
     private void PublishThirdPersonCamera()
     {
         if (_xr is not null) return;
@@ -134,7 +149,13 @@ internal partial class RuntimeNativePlayer
         if (_firstPersonCamera is not null && _firstPerson is not null)
         {
             _firstPersonCamera.Transform = _firstPerson.SourceCamera;
-            _firstPersonView!.Size = (Vector2I)GetViewport().GetVisibleRect().Size;
+            var visibleSize = GetViewport().GetVisibleRect().Size;
+            var viewportScale = OS.GetName() == "Android" ? 0.5f : 1f;
+            var targetSize = new Vector2I(
+                Math.Max(1, (int)(visibleSize.X * viewportScale)),
+                Math.Max(1, (int)(visibleSize.Y * viewportScale)));
+            if (_firstPersonView!.Size != targetSize)
+                _firstPersonView.Size = targetSize;
         }
         PublishThirdPersonCamera();
     }
@@ -167,7 +188,7 @@ internal partial class RuntimeNativePlayer
                     OwnWorld3D = true,
                     TransparentBg = true,
                     RenderTargetUpdateMode = SubViewport.UpdateMode.Always,
-                    Size = new(1280, 720)
+                    Size = OS.GetName() == "Android" ? new Vector2I(640, 360) : new Vector2I(1280, 720)
                 };
                 AddChild(_firstPersonView);
                 _firstPersonCamera = new Camera3D

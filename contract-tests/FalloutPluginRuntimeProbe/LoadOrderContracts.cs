@@ -64,7 +64,7 @@ internal static class LoadOrderContracts
             foreach (var name in new[] { "Base.bsa", "EarlyMaster.bsa", "EarlyMaster - Main.bsa", "Inactive - Main.bsa", "Unconfigured.bsa", "Update.bsa" })
                 File.WriteAllBytes(Path.Combine(root, name), []);
             var ini = Path.Combine(root, "Fallout.ini");
-            File.WriteAllText(ini, "[Other]\nsArchiveList=Unconfigured.bsa\n[Archive]\nsArchiveList=Base.bsa, Base.bsa\n");
+            File.WriteAllText(ini, "[Other]\nsArchiveList=Unconfigured.bsa\n[Archive]\nsArchiveList=Fallout - AII-FNV!.bsa, Base.bsa, Base.bsa\n");
             var sources = plugins.Select(path => new FalloutPluginSource(Path.GetFileName(path), path)).ToArray();
             var archives = RuntimeLiveContentSource.ResolveArchiveOrder(root, sources, NativeGame.FalloutNewVegas, ini);
             Require(archives.Select(Path.GetFileName).SequenceEqual(["Base.bsa", "EarlyMaster - Main.bsa", "EarlyMaster.bsa", "Update.bsa"]),

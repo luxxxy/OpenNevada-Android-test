@@ -228,7 +228,18 @@ internal partial class RuntimeNativeReferenceEvents : Node
             if (Player is null || binding.Node is null) throw new NotSupportedException("Furniture activation has no resident player/presentation.");
             if (_bindings.Values.Any(value => value.Node is RuntimeNativeNpc npc && npc.CurrentFurniture == reference))
                 return;
-            Player.ActivateFurniture(_records, _quests, binding.Reference, binding.Node.GlobalTransform, binding.Instance.Cell);
+            GD.Print($"OPENNV_FURNITURE_ACTIVATE_BEGIN reference={reference} source=android-or-desktop-input");
+            try
+            {
+                Player.ActivateFurniture(_records, _quests, binding.Reference, binding.Node.GlobalTransform, binding.Instance.Cell);
+                GD.Print($"OPENNV_FURNITURE_ACTIVATE_ACCEPTED reference={reference}");
+            }
+            catch (Exception error)
+            {
+                // A malformed or unsupported furniture resource must not take
+                // down the entire Android session when the player taps Interact.
+                GD.PushError($"OPENNV_FURNITURE_ACTIVATE_FAILED reference={reference} type={error.GetType().FullName} message={error.Message} stack={error.StackTrace}");
+            }
             return;
         }
         if (type == "ACTI") return; // Activators have no engine default action.

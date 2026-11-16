@@ -20,11 +20,13 @@ internal partial class RuntimeNativePlayerNameEntry : CanvasLayer
         _pausedTree = GetTree();
         _previousPause = _pausedTree.Paused;
         _pausedTree.Paused = true;
+        GD.Print($"OPENNV_PAUSE_ACQUIRE owner=player-name previous={_previousPause} current={_pausedTree.Paused}");
     }
 
     internal void ReleasePause()
     {
         if (_pausedTree is null) return;
+        GD.Print($"OPENNV_PAUSE_RELEASE owner=player-name restore={_previousPause} currentBefore={_pausedTree.Paused}");
         _pausedTree.Paused = _previousPause;
         _pausedTree = null;
     }

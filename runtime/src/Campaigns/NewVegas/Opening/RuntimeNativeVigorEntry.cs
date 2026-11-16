@@ -37,6 +37,7 @@ internal partial class RuntimeNativeVigorEntry : CanvasLayer
         _pausedTree = GetTree();
         _previousPause = _pausedTree.Paused;
         _pausedTree.Paused = true;
+        GD.Print($"OPENNV_PAUSE_ACQUIRE owner=special-vigor previous={_previousPause} current={_pausedTree.Paused}");
         _background = imageSpace?.BeginMenuBackground(records, FalloutMenuBackgroundKind.Popup);
         Input.MouseMode = Input.MouseModeEnum.Visible;
     }
@@ -47,6 +48,7 @@ internal partial class RuntimeNativeVigorEntry : CanvasLayer
         _background = null;
         if (_pausedTree is not { } tree) return;
         _pausedTree = null;
+        GD.Print($"OPENNV_PAUSE_RELEASE owner=special-vigor restore={_previousPause} currentBefore={tree.Paused}");
         tree.Paused = _previousPause;
     }
 

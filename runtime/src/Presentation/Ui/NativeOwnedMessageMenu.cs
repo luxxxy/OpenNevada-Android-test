@@ -304,7 +304,7 @@ internal sealed class NativeOwnedMenuTree
         {
             return FalloutMenuXml.Number(property, (source, key) =>
             {
-                if (source == "screen()") return key switch
+                if (source is "screen()" or "screen") return key switch
                 {
                     "width" => Screen.X,
                     "height" => Screen.Y,

@@ -131,6 +131,10 @@ internal partial class RuntimeNativeOpeningStageDriver
                     Callable.From(CompleteMovie).CallDeferred();
                     break;
                 }
+                GD.Print(
+                    $"OPENNV_MOVIE_REQUEST quest={movieQuest} stage={movieStage} file={movieCommand.FileName} " +
+                    $"interruptible={movieCommand.Interruptible} pauseMusic={movieCommand.PauseMusic} " +
+                    $"muteWorldAudio={movieCommand.MuteWorldAudio}");
                 var movie = new NativeGamebryoMovie();
                 _moviePlaying = true;
                 movie.Configure(movieCommand, _ => Callable.From(CompleteMovie).CallDeferred());

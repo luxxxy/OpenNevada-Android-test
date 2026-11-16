@@ -263,6 +263,19 @@ internal sealed partial class NativeGodotLauncher
         _launch.SizeFlagsVertical = SizeFlags.ShrinkEnd;
         _launch.Pressed += LaunchSelected;
         row.AddChild(_launch);
+
+        _saveMigrationBar = new HBoxContainer { Name = "SaveMigrationBar" };
+        _saveMigrationBar.AddThemeConstantOverride("separation", 8);
+        _saveMigrationBar.AddChild(Label("SAVE TRANSFER", 11, Muted));
+        var importBackup = ActionButton("Import backup", 34);
+        importBackup.Name = "ImportNewVegasSaveBackup";
+        importBackup.Pressed += () => OpenSaveMigrationDialog(export: false);
+        _saveMigrationBar.AddChild(importBackup);
+        var exportBackup = ActionButton("Export backup", 34);
+        exportBackup.Name = "ExportNewVegasSaveBackup";
+        exportBackup.Pressed += () => OpenSaveMigrationDialog(export: true);
+        _saveMigrationBar.AddChild(exportBackup);
+        stack.AddChild(_saveMigrationBar);
         return stack;
     }
 

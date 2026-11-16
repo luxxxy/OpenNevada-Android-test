@@ -31,7 +31,16 @@ internal partial class RuntimeNativePlayer
     internal bool RequestFurnitureExit()
     {
         if (_furniturePhase != 3 || _furnitureError is not null) return false;
-        StartFurniturePhase(4);
+
+        // The authored player exit KF currently causes a native Android process
+        // termination on some devices. Preserve its authored root-motion endpoint,
+        // but avoid running the temporary skeleton/animation during this transition.
+        var exit = _furnitureClips[4];
+        var motion = NativeFurnitureRootMotion.Exit(_occupied, _furnitureSeat!.HeadingDelta, exit.Start);
+        GlobalTransform = motion.Sample(exit.End);
+        Velocity = Vector3.Zero;
+        GD.Print($"OPENNV_NATIVE_PLAYER_FURNITURE_EXIT reference={_furnitureReference} mode=direct-root-motion");
+        ReleaseFurniture();
         return true;
     }
     internal object FurnitureState => new

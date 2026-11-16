@@ -150,6 +150,7 @@ internal sealed partial class NativeGodotLauncher
         var routeReady = campaign.Launchable && presentation?.Launchable == true && profileReady &&
             (_selectedPresentation != "openxr" || XrAvailable);
         var modSelected = FalloutModInstallation.IsMod(campaign.Id);
+        _saveMigrationBar.Visible = campaign.Id == "newvegas";
         _selectionTitle.Text = campaign.Id == "jam" ? "Just Assorted Mods" : campaign.Title;
         _selectionCategory.Text = modSelected ? "MOD COLLECTION  /  FALLOUT: NEW VEGAS" : "YOUR WORLD  /  " + RouteLabel(campaign.DefaultPresentation).ToUpperInvariant();
         _selectionDetail.Text = Description(campaign.Id);

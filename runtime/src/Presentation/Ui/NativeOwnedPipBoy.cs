@@ -25,6 +25,11 @@ internal sealed partial class NativeOwnedPipBoy : Control
     private readonly HashSet<MeshInstance3D> _buttonHitParts = [];
     private static readonly string[] Glows = ["StatsGlow:0", "ItemsGlow:0", "DataGlow:0"];
     private Vector2? _lastPointer;
+    private Vector2? _touchPointer;
+    private int _touchIndex = -1;
+    private bool _touchOnProjectedButton;
+    private bool _touchInputSeen;
+    private Button? _touchCloseButton;
     private readonly RuntimeNativePlayerActor _player;
     private double _openSeconds;
     private double _idleSeconds;
@@ -190,6 +195,40 @@ internal sealed partial class NativeOwnedPipBoy : Control
             AddChild(hints);
             hints.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomWide);
             hints.OffsetTop = -34; hints.OffsetBottom = -8;
+
+            var closeButton = new Button
+            {
+                Name = "ClosePipBoyTouchButton",
+                Text = "×",
+                AnchorLeft = 1,
+                AnchorRight = 1,
+                AnchorTop = 0,
+                AnchorBottom = 0,
+                OffsetLeft = -72,
+                OffsetRight = -14,
+                OffsetTop = 14,
+                OffsetBottom = 72,
+                FocusMode = FocusModeEnum.None,
+                MouseFilter = MouseFilterEnum.Stop,
+            };
+            closeButton.AddThemeFontSizeOverride("font_size", 32);
+            closeButton.AddThemeColorOverride("font_color", new Color(0.82f, 0.9f, 0.65f));
+            closeButton.AddThemeStyleboxOverride("normal", new StyleBoxFlat
+            {
+                BgColor = new Color(0.035f, 0.055f, 0.04f, 0.88f),
+                BorderColor = new Color(0.62f, 0.76f, 0.48f, 0.9f),
+                BorderWidthLeft = 1,
+                BorderWidthTop = 1,
+                BorderWidthRight = 1,
+                BorderWidthBottom = 1,
+                CornerRadiusTopLeft = 10,
+                CornerRadiusTopRight = 10,
+                CornerRadiusBottomLeft = 10,
+                CornerRadiusBottomRight = 10,
+            });
+            closeButton.Pressed += RequestClose;
+            _touchCloseButton = closeButton;
+            AddChild(closeButton);
         }
     }
     public override void _Process(double delta)
@@ -232,8 +271,79 @@ internal sealed partial class NativeOwnedPipBoy : Control
         if (input is InputEventJoypadButton { Pressed: true, ButtonIndex: JoyButton.B } || input.IsActionPressed(_toggleAction) || input is InputEventKey { Pressed: true, Echo: false, PhysicalKeycode: Key.Escape })
         { _closing = true; GetViewport().SetInputAsHandled(); return; }
         if (_closing || _openSeconds < _player.PipBoyDuration) { GetViewport().SetInputAsHandled(); return; }
+        if (input is InputEventScreenTouch touch)
+        {
+            _touchInputSeen = true;
+            if (touch.Pressed)
+            {
+                if (_touchIndex != -1) { GetViewport().SetInputAsHandled(); return; }
+                _touchIndex = touch.Index;
+                if (_touchCloseButton?.GetGlobalRect().HasPoint(touch.Position) == true)
+                {
+                    _touchOnProjectedButton = true;
+                    RequestClose();
+                    GetViewport().SetInputAsHandled();
+                    return;
+                }
+                var target = _buttons.FirstOrDefault(value => value.Button.GetGlobalRect().HasPoint(touch.Position));
+                if (target.Button is not null)
+                {
+                    _touchOnProjectedButton = true;
+                    target.Button.EmitSignal(BaseButton.SignalName.Pressed);
+                    GetViewport().SetInputAsHandled();
+                    return;
+                }
+                var uv = _device!.PickScreen(touch.Position - GlobalPosition);
+                if (uv is null) { _touchIndex = -1; return; }
+                _touchOnProjectedButton = false;
+                _touchPointer = uv.Value * new Vector2(1280, 960);
+                PushTouchButton(_touchPointer.Value, true);
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+            if (touch.Index != _touchIndex) return;
+            if (!_touchOnProjectedButton)
+            {
+                var uv = _device!.PickScreen(touch.Position - GlobalPosition);
+                var point = uv is { } value ? value * new Vector2(1280, 960) : _touchPointer ?? new Vector2(-1, -1);
+                PushTouchButton(point, false);
+            }
+            _touchIndex = -1;
+            _touchPointer = null;
+            _touchOnProjectedButton = false;
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+        if (input is InputEventScreenDrag screenDrag && screenDrag.Index == _touchIndex)
+        {
+            if (!_touchOnProjectedButton)
+            {
+                var uv = _device!.PickScreen(screenDrag.Position - GlobalPosition);
+                // Keep a captured map drag at its last valid point when the
+                // finger leaves the CRT, rather than applying an outside delta.
+                if (uv is { } value)
+                {
+                    var point = value * new Vector2(1280, 960);
+                    using var motion = new InputEventMouseMotion
+                    {
+                        Position = point,
+                        GlobalPosition = point,
+                        Relative = _touchPointer is { } previous ? point - previous : Vector2.Zero,
+                        ButtonMask = MouseButtonMask.Left
+                    };
+                    _canvas.PushInput(motion, true);
+                    _touchPointer = point;
+                }
+            }
+            GetViewport().SetInputAsHandled();
+            return;
+        }
         if (input is InputEventMouse mouse)
         {
+            // Android can emit a compatibility mouse event after a touch event.
+            // Once native touch routing is active, avoid delivering both copies.
+            if (_touchInputSeen) { GetViewport().SetInputAsHandled(); return; }
+            if (_touchCloseButton?.GetGlobalRect().HasPoint(mouse.Position) == true) return;
             if (_buttons.Any(target => target.Button.GetGlobalRect().HasPoint(mouse.Position))) return;
             var uv = _device!.PickScreen(mouse.Position - GlobalPosition);
             // Keep a captured map drag at its last valid point when the cursor
@@ -248,6 +358,18 @@ internal sealed partial class NativeOwnedPipBoy : Control
         }
         else if (input is InputEventKey or InputEventJoypadButton or InputEventJoypadMotion)
         { _canvas.PushInput(input, true); GetViewport().SetInputAsHandled(); }
+    }
+    private void PushTouchButton(Vector2 point, bool pressed)
+    {
+        using var click = new InputEventMouseButton
+        {
+            Position = point,
+            GlobalPosition = point,
+            ButtonIndex = MouseButton.Left,
+            Pressed = pressed
+        };
+        _canvas.PushInput(click, true);
+        _touchPointer = point;
     }
     internal void RequestClose() => _closing = true;
     public override void _ExitTree() => RestoreScreenMaterial();

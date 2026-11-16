@@ -91,6 +91,8 @@ internal sealed partial class NativeGodotLauncher : Control
     private string _libraryFilter = "All";
     private readonly Dictionary<string, Button> _filterButtons = new();
     private FileDialog? _fileDialog;
+    private FileDialog? _saveMigrationDialog;
+    private HBoxContainer _saveMigrationBar = null!;
     private bool _selectingDependency;
     private bool _selectingBaseGame;
     private bool _configured;
@@ -135,7 +137,9 @@ internal sealed partial class NativeGodotLauncher : Control
         if (key.PhysicalKeycode == Key.Escape)
         {
             GetViewport().SetInputAsHandled();
-            if (_fileDialog is not null)
+            if (_saveMigrationDialog is not null)
+                CloseSaveMigrationDialog();
+            else if (_fileDialog is not null)
                 CloseFileDialog();
             else
                 GetTree().Quit();
@@ -256,6 +260,78 @@ internal sealed partial class NativeGodotLauncher : Control
             CloseFileDialog();
             Refresh();
         }
+    }
+
+    private void OpenSaveMigrationDialog(bool export)
+    {
+        if (_saveMigrationDialog is not null || _fileDialog is not null)
+            return;
+        if (CurrentCampaign().Id != "newvegas")
+            return;
+
+        _saveMigrationDialog = new FileDialog
+        {
+            Name = export ? "ExportNewVegasSaveBackup" : "ImportNewVegasSaveBackup",
+            FileMode = export ? FileDialog.FileModeEnum.SaveFile : FileDialog.FileModeEnum.OpenFile,
+            Access = FileDialog.AccessEnum.Filesystem,
+            Title = export ? "Export OpenNV New Vegas save backup" : "Import OpenNV New Vegas save backup",
+            CurrentFile = "OpenNV-NewVegas-Backup.opennvbackup",
+            Filters = ["*.opennvbackup ; OpenNV save backup", "*.json ; OpenNV campaign save"],
+        };
+        _saveMigrationDialog.FileSelected += path => CompleteSaveMigration(export, path);
+        _saveMigrationDialog.Canceled += CloseSaveMigrationDialog;
+        AddChild(_saveMigrationDialog);
+        _saveMigrationDialog.PopupCentered(new Vector2I(900, 600));
+    }
+
+    private string NewVegasSavePath()
+    {
+        if (_profiles.TryGet("newvegas", out var profile) && profile.EnabledMods is { Count: > 0 })
+            return _profiles.LaunchSavePath("newvegas");
+        return GodotLauncherProfileStore.DefaultSavePath("newvegas");
+    }
+
+    private void CompleteSaveMigration(bool export, string selectedPath)
+    {
+        try
+        {
+            var path = selectedPath;
+            if (export && !path.EndsWith(".opennvbackup", StringComparison.OrdinalIgnoreCase))
+                path += ".opennvbackup";
+            if (export)
+            {
+                var result = GodotSaveMigrationBundle.Export("newvegas", NewVegasSavePath(), path);
+                _toast.Text = $"Backup exported: {result.ExportedSaveFiles} save(s), {result.ExportedScriptFiles} script setting file(s).";
+                _toast.AddThemeColorOverride("font_color", new Color(0.47f, 0.84f, 0.62f));
+            }
+            else
+            {
+                var result = Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase)
+                    ? GodotSaveMigrationBundle.ImportLegacySaveFile("newvegas", NewVegasSavePath(), path)
+                    : GodotSaveMigrationBundle.Import("newvegas", NewVegasSavePath(), path);
+                _toast.Text = $"Imported {result.ImportedSaveSlots} save(s) as separate slots. " +
+                    $"{result.ImportedScriptFiles} script file(s) restored; {result.SkippedScriptConflicts} existing script file(s) kept. " +
+                    "Open the in-game save browser; saves from a different game/mod setup will be skipped. Continue was not replaced.";
+                _toast.AddThemeColorOverride("font_color", new Color(0.47f, 0.84f, 0.62f));
+            }
+        }
+        catch (Exception error)
+        {
+            _toast.Text = error.Message;
+            _toast.AddThemeColorOverride("font_color", new Color(0.86f, 0.61f, 0.33f));
+        }
+        finally
+        {
+            CloseSaveMigrationDialog();
+        }
+    }
+
+    private void CloseSaveMigrationDialog()
+    {
+        if (_saveMigrationDialog is null)
+            return;
+        _saveMigrationDialog.QueueFree();
+        _saveMigrationDialog = null;
     }
 
     private void CloseFileDialog()
