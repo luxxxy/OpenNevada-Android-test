@@ -74,6 +74,16 @@ internal sealed class FalloutOpeningStageMachine
         Enter(questEditorId, stage);
     }
 
+    internal void BeginFallbackBlocker(string blocker)
+    {
+        if (string.IsNullOrWhiteSpace(blocker) || _pendingBlockers.Count != 0 ||
+            _blockedTransition is not null || TimerSeconds is not null || _timerTransition is not null)
+            throw new InvalidOperationException("Native opening fallback cannot start while another transition is pending.");
+        _blockedTransition = new FalloutOpeningStageTransition(
+            "script-wait", QuestEditorId, Stage, QuestEditorId, Stage, null, [blocker]);
+        _pendingBlockers.Add(blocker);
+    }
+
     internal bool CompleteBlocker(string blocker)
     {
         if (string.Equals(blocker, "sayto", StringComparison.OrdinalIgnoreCase) && _blockedTransition?.Kind == "dialogue-wait")
