@@ -9,7 +9,7 @@ on:
       - "global.json"
       - ".github/workflows/android-apk.yml"
   push:
-    branches: [main]
+    branches: [main, codex/opening-checkpoint-overlay]
     paths:
       - "runtime/**"
       - "global.json"
