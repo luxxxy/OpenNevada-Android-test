@@ -456,13 +456,14 @@ internal sealed class RuntimeLiveContentSource : IDisposable
                     if (result.Any(path => Path.GetFileName(path).Equals(name, StringComparison.OrdinalIgnoreCase))) continue;
                     if (!available.Remove(name, out var path))
                     {
-                        // An explicitly selected archive configuration is authoritative and
-                        // must reject missing files. The retail default INI can contain
-                        // distribution-specific optional archives, so ignore those when
-                        // resolving the installation's built-in defaults.
-                        if (archiveIniPath is not null)
-                            throw new FileNotFoundException($"Configured archive is absent from the selected Data folder: {name}");
-                        continue;
+                        // ArchiveInvalidation Invalidated! is an optional, third-party
+                        // BSA and is not part of every retail installation. Ignore only
+                        // that known optional entry in the retail default INI; all other
+                        // missing archives remain errors.
+                        if (archiveIniPath is null &&
+                            name.Equals("Fallout - All-FNV!.bsa", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        throw new FileNotFoundException($"Configured archive is absent from the selected Data folder: {name}");
                     }
                     result.Add(path);
                 }
