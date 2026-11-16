@@ -7,6 +7,12 @@ This fork targets Fallout: New Vegas on an ARM64 Android handheld. A complete
 Android campaign, reproducible APK, and device performance have not yet been
 verified. The inherited desktop runtime and its checks are the starting point.
 
+**Product direction:** Android is required to reach feature parity with the PC
+OpenNV product. PC changes are ongoing Android porting obligations, not optional
+desktop-only improvements. See the [PC-to-Android parity plan](docs/pc-android-parity.md)
+for the synchronization procedure, feature scope, platform adaptations and
+acceptance rules.
+
 ## Source and release status
 
 The original Android fork's September 28 Beta is described by its author as a
@@ -38,5 +44,3 @@ Android export requirements will accompany the tested build.
 Supply your own New Vegas installation. Retail files are read-only inputs and
 remain external to the application. No commercial assets, executables, saves,
 or mod packages are included in this repository or its releases.
-
-Thanks to the OpenNV authors and RedZeroGotcha's initial Android investigation.
