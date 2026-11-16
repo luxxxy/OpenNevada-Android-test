@@ -308,8 +308,9 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
 
     public override void _Ready()
     {
-        // Keep the checkpoint HUD alive while character-creation menus pause the tree.
+        // Keep the checkpoint HUD and recovery watchdog alive while character-creation menus pause the tree.
         ProcessMode = ProcessModeEnum.Always;
+        SetProcess(true);
         CreateOpeningDiagnosticOverlay();
         UpdateOpeningDiagnosticOverlay();
         _playerPackage = new RuntimeNativePlayerPackage(_pluginStack, _player);
