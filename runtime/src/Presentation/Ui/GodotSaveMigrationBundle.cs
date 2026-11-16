@@ -25,8 +25,8 @@ internal static class GodotSaveMigrationBundle
         PropertyNameCaseInsensitive = true,
     };
 
-    internal sealed record ManifestFile(string Path, long Length, string Sha256);
-    internal sealed record Manifest(
+    public sealed record ManifestFile(string Path, long Length, string Sha256);
+    public sealed record Manifest(
         string Schema,
         string CampaignId,
         DateTime CreatedUtc,
