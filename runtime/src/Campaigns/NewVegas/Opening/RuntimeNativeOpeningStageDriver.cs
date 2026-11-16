@@ -268,9 +268,10 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
                 return;
             }
         }
-        // VCG00 stage 90 should open character creation. If its source script
-        // reaches a stable, unblocked state without doing so, provide one
-        // controlled fallback and let the normal MenuMode continuation run.
+        // VCG00's own timer script advances 90 -> 95 -> 100. If that
+        // progression stalls on Android, skip only stage 90 and preserve
+        // the original stage-95/100 continuation. Character creation belongs
+        // to VCG01, not to this VCG00 transition.
         if (!_raceMenuFallbackAttempted &&
             QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
             Stage == 90 && PendingBlockers.Count == 0 && _raceSexEntry is null &&
@@ -281,19 +282,19 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             if (_raceMenuFallbackElapsed >= 2.0)
             {
                 _raceMenuFallbackAttempted = true;
-                _raceMenuFallbackStatus = "triggered";
+                _raceMenuFallbackStatus = "skipping-90-to-95";
                 try
                 {
-                    _machine.BeginFallbackBlocker("showracemenu");
-                    _raceMenuFallbackStatus = "blocker-created";
-                    GD.PushWarning("OPENNV_NATIVE_RACESEX_FALLBACK quest=VCG00 stage=90 reason=source-script-did-not-open-menu");
+                    _machine.EnterScriptStage(FalloutNativeCampaignSave.OpeningQuestEditorId, 95);
+                    _raceMenuFallbackStatus = "entered-stage-95";
+                    GD.PushWarning("OPENNV_NATIVE_OPENING_STAGE_SKIP quest=VCG00 from=90 to=95 reason=stalled-stage-progression");
                     Synchronize();
                 }
-                catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException)
+                catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
                 {
                     _raceMenuFallbackStatus = $"failed:{error.GetType().Name}";
                     ExecutionError = error.Message;
-                    GD.PushError($"OPENNV_NATIVE_RACESEX_FALLBACK_FAILED: {error.Message}");
+                    GD.PushError($"OPENNV_NATIVE_OPENING_STAGE_SKIP_FAILED: {error.Message}");
                 }
             }
         }
