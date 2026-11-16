@@ -68,6 +68,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     internal float? TimerSeconds => _machine.TimerSeconds;
     internal IReadOnlyCollection<string> PendingBlockers => _machine.PendingBlockers;
     internal FalloutFormKey ActiveCell => _activeCell;
+    internal event Action? DiagnosticCheckpointRequested;
     internal bool HasCampaignSave => File.Exists(_savePath);
     internal string PlayerName => _playerName;
     internal int PlayerLevel => SourcePlayerLevel;
@@ -369,7 +370,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             Name = "Background",
             Color = new Color(0.015f, 0.02f, 0.03f, 0.88f),
             Position = new Vector2(12, 12),
-            Size = new Vector2(900, 150),
+            Size = new Vector2(900, 196),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         layer.AddChild(backdrop);
@@ -377,13 +378,44 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         {
             Name = "Checkpoint",
             Position = new Vector2(24, 20),
-            Size = new Vector2(875, 136),
+            Size = new Vector2(875, 132),
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         _openingDiagnosticLabel.AddThemeColorOverride("font_color", Colors.White);
         _openingDiagnosticLabel.AddThemeFontSizeOverride("font_size", 18);
         layer.AddChild(_openingDiagnosticLabel);
+        var checkpoint = new Button
+        {
+            Name = "ForceStage95Checkpoint",
+            Text = "FORCE VCG00 STAGE 95 + SAVE CHECKPOINT",
+            Position = new Vector2(24, 156),
+            Size = new Vector2(420, 32),
+            ProcessMode = ProcessModeEnum.Always
+        };
+        checkpoint.Pressed += () =>
+        {
+            if (_machine is null || !_machine.QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase))
+            {
+                ExecutionError = "Stage-95 checkpoint is only valid during VCG00.";
+                UpdateOpeningDiagnosticOverlay();
+                return;
+            }
+            try
+            {
+                _machine.EnterScriptStage(FalloutNativeCampaignSave.OpeningQuestEditorId, 95);
+                Synchronize();
+                DiagnosticCheckpointRequested?.Invoke();
+                GD.Print("OPENNV_DIAGNOSTIC_STAGE95_CHECKPOINT_REQUESTED");
+            }
+            catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
+            {
+                ExecutionError = error.Message;
+                GD.PushError($"OPENNV_DIAGNOSTIC_STAGE95_CHECKPOINT_FAILED: {error}");
+                UpdateOpeningDiagnosticOverlay();
+            }
+        };
+        layer.AddChild(checkpoint);
         GD.Print("OPENNV_OPENING_CHECKPOINT_OVERLAY_CREATED");
     }
 
