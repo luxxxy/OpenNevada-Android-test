@@ -467,16 +467,16 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             $"Quest: {quest}   Stage: {stage}   Blockers: {blockers}\n" +
             $"Quest script: {script}\n" +
             $"Stage 90 skip: attempted={_stage90SkipAttempted} elapsed={_stage90SkipElapsed:F1}s state={_stage90SkipStatus}\n" +
-            $"Tree paused: {GetTree().Paused}   Driver process: {IsProcessing()}   Player physics: {_player?.IsPhysicsProcessing() ?? false}\\n" +
+            $"Tree paused: {GetTree().Paused}   Driver process: {IsProcessing()}   Player physics: {_player?.IsPhysicsProcessing() ?? false}\n" +
             $"Player: {_player is not null}   Modal input: {_player?.ModalInput ?? false}   " +
-            $"Movement: {machine?.ControlState.Movement ?? false}   Looking: {machine?.ControlState.Looking ?? false}\\n" +
-            $"Cell: {_activeCell}   Movie: {_moviePlaying}   Race/sex UI: {_raceSexEntry is not null}   Name UI: {_nameEntry is not null}\\n" +
-            $"Vigor UI: {_vigorEntry is not null}   Tag-skill UI: {_tagSkillEntry is not null}   Trait UI: {_traitEntry is not null}\\n" +
-            $"Recipe UI: {_recipeMenu is not null}   Barter UI: {_barterMenu is not null}\\n" +
+            $"Movement: {machine?.ControlState.Movement ?? false}   Looking: {machine?.ControlState.Looking ?? false}\n" +
+            $"Cell: {_activeCell}   Movie: {_moviePlaying}   Race/sex UI: {_raceSexEntry is not null}   Name UI: {_nameEntry is not null}\n" +
+            $"Vigor UI: {_vigorEntry is not null}   Tag-skill UI: {_tagSkillEntry is not null}   Trait UI: {_traitEntry is not null}\n" +
+            $"Recipe UI: {_recipeMenu is not null}   Barter UI: {_barterMenu is not null}\n" +
             $"Session menu: {GetTree().Root.FindChild(\"NativeSessionLayer\", true, false) is not null}   " +
             $"Pip-Boy: {GetTree().Root.FindChild(\"NativePipBoyLayer\", true, false) is not null}   " +
-            $"Container: {GetTree().Root.FindChild(\"NativeContainerLayer\", true, false) is not null}\\n" +
-            $"Focus: {GetViewport().GuiGetFocusOwner()?.Name ?? \"none\"}   Mouse: {Input.MouseMode}\\n" +
+            $"Container: {GetTree().Root.FindChild(\"NativeContainerLayer\", true, false) is not null}\n" +
+            $"Focus: {GetViewport().GuiGetFocusOwner()?.Name ?? \"none\"}   Mouse: {Input.MouseMode}\n" +
             $"Error: {ExecutionError ?? "none"}";
     }
 
