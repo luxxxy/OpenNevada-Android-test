@@ -87,8 +87,8 @@ jobs:
           set -euo pipefail
           mkdir -p "$HOME/.android" "$HOME/.config/godot"
           if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -noprompt -keystore "$HOME/.android/debug.keystore" \\
-              -storepass android -keypass android -alias androiddebugkey \\
+            keytool -genkeypair -noprompt -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -keypass android -alias androiddebugkey \
               -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
           fi
           keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
@@ -127,9 +127,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p output
-          GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/.android/debug.keystore" \\
-          GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey" \\
-          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android" \\
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/.android/debug.keystore" \
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey" \
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android" \
             godot --headless --path runtime --export-debug "Android Handheld Experimental" "$GITHUB_WORKSPACE/output/OpenNevada-Experimental-ARM64.apk"
           test -s output/OpenNevada-Experimental-ARM64.apk
           file output/OpenNevada-Experimental-ARM64.apk
