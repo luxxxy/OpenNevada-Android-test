@@ -403,8 +403,15 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             }
             try
             {
-                _machine.EnterScriptStage(FalloutNativeCampaignSave.OpeningQuestEditorId, 95);
-                Synchronize();
+                if (_machine.Stage == 90)
+                {
+                    _machine.EnterScriptStage(FalloutNativeCampaignSave.OpeningQuestEditorId, 95);
+                    Synchronize();
+                }
+                else if (_machine.Stage != 95)
+                {
+                    throw new InvalidOperationException($"Checkpoint requires VCG00 stage 90 or 95; current stage is {_machine.Stage}.");
+                }
                 DiagnosticCheckpointRequested?.Invoke();
                 GD.Print("OPENNV_DIAGNOSTIC_STAGE95_CHECKPOINT_REQUESTED");
             }
