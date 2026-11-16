@@ -451,6 +451,8 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             $"Player: {_player is not null}   Modal input: {_player?.ModalInput ?? false}   " +
             $"Movement: {machine?.ControlState.Movement ?? false}   Looking: {machine?.ControlState.Looking ?? false}\\n" +
             $"Cell: {_activeCell}   Movie: {_moviePlaying}   Race/sex UI: {_raceSexEntry is not null}   Name UI: {_nameEntry is not null}\\n" +
+            $"Vigor UI: {_vigorEntry is not null}   Tag-skill UI: {_tagSkillEntry is not null}   Trait UI: {_traitEntry is not null}\\n" +
+            $"Recipe UI: {_recipeMenu is not null}   Barter UI: {_barterMenu is not null}\\n" +
             $"Error: {ExecutionError ?? "none"}";
     }
 
