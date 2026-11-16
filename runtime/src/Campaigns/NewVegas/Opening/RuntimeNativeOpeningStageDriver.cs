@@ -338,7 +338,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         var blockers = machine is null ? "n/a" : string.Join(",", machine.PendingBlockers);
         var scriptProgress = machine is null ? null : _scripts.ClaimedProgress(_controls.Stage(QuestEditorId, Stage).Quest);
         var script = scriptProgress is { } progress
-            ? $"runs={progress.Executions} next={progress.Remaining:F2}s error={progress.Error ?? "none"}"
+            ? $"runs={progress.Executions} next={progress.Remaining:F2}s error={progress.Error ?? "none"} cmds={progress.Commands}"
             : "not-found";
         _openingDiagnosticLabel.Text =
             "OPENNEVADA · NEW GAME CHECKPOINT\n" +
