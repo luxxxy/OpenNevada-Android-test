@@ -455,7 +455,12 @@ internal sealed class RuntimeLiveContentSource : IDisposable
                 {
                     if (result.Any(path => Path.GetFileName(path).Equals(name, StringComparison.OrdinalIgnoreCase))) continue;
                     if (!available.Remove(name, out var path))
-                        throw new FileNotFoundException($"Configured archive is absent from the selected Data folder: {name}");
+                    {
+                        // Archive lists can contain distribution-specific or optional BSAs
+                        // that are not shipped with every valid Fallout: New Vegas install.
+                        // Keep loading the archives that are actually present.
+                        continue;
+                    }
                     result.Add(path);
                 }
             }
