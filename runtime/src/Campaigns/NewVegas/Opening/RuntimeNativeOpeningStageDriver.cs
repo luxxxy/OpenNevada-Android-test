@@ -57,10 +57,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private Label? _openingDiagnosticLabel;
     private Godot.Timer? _openingWatchdog;
     private double _openingDiagnosticElapsed;
-    private double _stage90SkipElapsed;
-    private bool _stage90SkipAttempted = true;
     private bool _stage95CheckpointSaved;
-    private string _stage90SkipStatus = "disabled-for-isolation-build";
     internal string? ExecutionError { get; private set; }
     private readonly List<object> _headTrackingCommands = [];
     internal object[] HeadTrackingCommands => _headTrackingCommands.ToArray();
@@ -344,41 +341,6 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     {
         _openingDiagnosticElapsed += 0.25;
         RecoverOrphanedOpeningPause();
-        // VCG00 normally progresses 90 -> 95 -> 100. Keep this recovery
-        // watchdog separate from gameplay processing and allow it while paused.
-        if (!_stage90SkipAttempted &&
-            _machine is not null &&
-            QuestEditorId.Equals(NewGameQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
-            Stage == 90 && PendingBlockers.Count == 0 && _raceSexEntry is null &&
-            _nameEntry is null && _vigorEntry is null && _tagSkillEntry is null && _traitEntry is null &&
-            !_moviePlaying && _recipeMenu is null && _barterMenu is null)
-        {
-            _stage90SkipElapsed += 0.25;
-            if (_stage90SkipElapsed >= 2.0)
-            {
-                _stage90SkipAttempted = true;
-                _stage90SkipStatus = "skipping-90-to-95";
-                try
-                {
-                    _machine.EnterScriptStage(NewGameQuestEditorId, 95);
-                    _stage90SkipStatus = "entered-stage-95";
-                    GD.PushWarning("OPENNV_NATIVE_OPENING_STAGE_SKIP quest=VCG00 from=90 to=95 reason=stalled-stage-progression");
-                    Synchronize();
-                }
-                catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
-                {
-                    _stage90SkipStatus = $"failed:{error.GetType().Name}";
-                    ExecutionError = error.Message;
-                    GD.PushError($"OPENNV_NATIVE_OPENING_STAGE_SKIP_FAILED: {error.Message}");
-                }
-            }
-        }
-        else if (_machine is not null &&
-                 (!QuestEditorId.Equals(NewGameQuestEditorId, StringComparison.OrdinalIgnoreCase) ||
-                  Stage != 90))
-        {
-            _stage90SkipElapsed = 0;
-        }
         UpdateOpeningDiagnosticOverlay();
     }
 
@@ -470,7 +432,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             $"Watchdog: {(_openingWatchdog is null ? "missing" : $"stopped={_openingWatchdog.IsStopped()} left={_openingWatchdog.TimeLeft:F2}s mode={_openingWatchdog.ProcessMode}")}\n" +
             $"Quest: {quest}   Stage: {stage}   Blockers: {blockers}\n" +
             $"Quest script: {script}\n" +
-            $"Stage 90 skip: attempted={_stage90SkipAttempted} elapsed={_stage90SkipElapsed:F1}s state={_stage90SkipStatus}\n" +
+            "Stage skip: disabled   Quest progression: native\n" +
             $"Tree paused: {GetTree().Paused}   Driver process: {IsProcessing()}   Player physics: {_player?.IsPhysicsProcessing() ?? false}\n" +
             $"Player: {_player is not null}   Modal input: {_player?.ModalInput ?? false}   " +
             $"Movement: {machine?.ControlState.Movement ?? false}   Looking: {machine?.ControlState.Looking ?? false}\n" +
