@@ -273,6 +273,8 @@ internal static class GodotSaveMigrationBundle
         ArgumentException.ThrowIfNullOrWhiteSpace(campaignId);
         ArgumentException.ThrowIfNullOrWhiteSpace(canonicalSavePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(legacySavePath);
+        if (!campaignId.Equals("newvegas", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Standalone legacy save import is only supported for New Vegas.");
         var bytes = File.ReadAllBytes(Path.GetFullPath(legacySavePath));
         ValidateSaveBytes(bytes);
         var savePath = Path.GetFullPath(canonicalSavePath);
