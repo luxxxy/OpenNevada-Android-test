@@ -196,43 +196,62 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
 
     private void BuildButtons()
     {
-        AddActionButton("INTERACT", _input.Activate.Action, false, 0.69f, 0.69f, 0.83f, 0.80f);
-        AddActionButton("JUMP", _input.Jump.Action, false, 0.84f, 0.69f, 0.98f, 0.80f);
-        AddActionButton("FIRE", _input.Fire.Action, true, 0.69f, 0.82f, 0.83f, 0.94f);
-        AddActionButton("AIM", GamepadInputMap.AimAction, true, 0.84f, 0.82f, 0.98f, 0.94f);
-        AddActionButton("RELOAD", _input.Reload.Action, false, 0.53f, 0.82f, 0.67f, 0.94f);
-        AddActionButton("PIP-BOY", _input.PipBoy.Action, false, 0.53f, 0.69f, 0.67f, 0.80f);
-        AddActionButton("SPRINT", _input.Sprint.Action, true, 0.30f, 0.82f, 0.44f, 0.94f);
-        AddActionButton("PAUSE", _input.Cancel.Action, false, 0.88f, 0.025f, 0.98f, 0.105f);
+        // Compact, monochrome amber glyphs evoke the Pip-Boy / Mojave HUD.
+        // Tooltips retain the action names without permanently crowding the screen.
+        AddActionButton("E", "INTERACT", _input.Activate.Action, false, .765f, .700f, .835f, .790f);
+        AddActionButton("↑", "JUMP", _input.Jump.Action, false, .845f, .700f, .915f, .790f);
+        AddActionButton("●", "FIRE (hold)", _input.Fire.Action, true, .925f, .700f, .995f, .790f);
+        AddActionButton("◎", "AIM (hold)", GamepadInputMap.AimAction, true, .765f, .805f, .835f, .895f);
+        AddActionButton("↻", "RELOAD", _input.Reload.Action, false, .845f, .805f, .915f, .895f);
+        AddActionButton("P", "PIP-BOY", _input.PipBoy.Action, false, .925f, .805f, .995f, .895f);
+        AddActionButton("ϟ", "SPRINT (hold)", _input.Sprint.Action, true, .765f, .910f, .835f, .995f);
+        AddActionButton("◉", "THIRD PERSON", null, false, .845f, .910f, .915f, .995f,
+            onPressed: () => _player.ToggleThirdPersonView(),
+            disabled: !_player.HasThirdPersonViewControl);
+        AddActionButton("⌖", "V.A.T.S. — not implemented yet", null, false, .925f, .910f, .995f, .995f,
+            disabled: true);
+        AddActionButton("Ⅱ", "PAUSE", _input.Cancel.Action, false, .925f, .025f, .995f, .105f);
     }
 
     private void AddActionButton(
-        string label, string action, bool hold,
-        float left, float top, float right, float bottom)
+        string glyph, string tooltip, string? action, bool hold,
+        float left, float top, float right, float bottom,
+        Action? onPressed = null, bool disabled = false)
     {
         var button = new Button
         {
-            Text = label,
+            Text = glyph,
+            TooltipText = tooltip,
             AnchorLeft = left,
             AnchorTop = top,
             AnchorRight = right,
             AnchorBottom = bottom,
             FocusMode = Control.FocusModeEnum.None,
             MouseFilter = Control.MouseFilterEnum.Stop,
-            Modulate = new Color(1, 1, 1, 0.88f)
+            Disabled = disabled,
+            Modulate = new Color(1, 1, 1, disabled ? 0.42f : 0.92f)
         };
-        button.AddThemeFontSizeOverride("font_size", 17);
-        button.AddThemeStyleboxOverride("normal", ButtonStyle(new Color(0.055f, 0.09f, 0.12f, 0.78f)));
-        button.AddThemeStyleboxOverride("hover", ButtonStyle(new Color(0.12f, 0.23f, 0.29f, 0.92f)));
-        button.AddThemeStyleboxOverride("pressed", ButtonStyle(new Color(0.20f, 0.42f, 0.48f, 0.98f)));
+        button.AddThemeFontSizeOverride("font_size", 23);
+        button.AddThemeColorOverride("font_color", new Color(0.80f, 0.88f, 0.61f));
+        button.AddThemeColorOverride("font_hover_color", new Color(0.95f, 0.91f, 0.66f));
+        button.AddThemeColorOverride("font_pressed_color", new Color(0.12f, 0.16f, 0.09f));
+        button.AddThemeStyleboxOverride("normal", ButtonStyle(new Color(0.045f, 0.065f, 0.045f, 0.78f)));
+        button.AddThemeStyleboxOverride("hover", ButtonStyle(new Color(0.15f, 0.19f, 0.10f, 0.94f)));
+        button.AddThemeStyleboxOverride("pressed", ButtonStyle(new Color(0.70f, 0.75f, 0.42f, 0.98f)));
+        button.AddThemeStyleboxOverride("disabled", ButtonStyle(new Color(0.045f, 0.055f, 0.04f, 0.58f)));
         _root.AddChild(button);
-        button.ButtonDown += () =>
+        if (action is not null)
         {
-            if (hold) SendActionEvent(action, true);
-            else PulseAction(action);
-        };
-        if (hold)
-            button.ButtonUp += () => SendActionEvent(action, false);
+            button.ButtonDown += () =>
+            {
+                if (hold) SendActionEvent(action, true);
+                else PulseAction(action);
+            };
+            if (hold)
+                button.ButtonUp += () => SendActionEvent(action, false);
+        }
+        if (onPressed is not null)
+            button.Pressed += onPressed;
     }
 
     private static StyleBoxFlat ButtonStyle(Color color) => new()
