@@ -596,16 +596,13 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         }
         if (_raceSexEntry is not null)
             return;
-        _stage90SkipStatus = "blocker-detected";
         GD.Print($"OPENNV_CREATION_DIAG phase=blocker_detected quest={_machine.QuestEditorId} stage={_machine.Stage} blockers={string.Join(',', _machine.PendingBlockers)}");
         _raceSexEntry = new RuntimeNativeRaceSexEntry();
         AddChild(_raceSexEntry);
         _raceSexEntry.Accepted += AcceptCharacter;
         _raceSexEntry.Failed += error => ExecutionError = error.Message;
-        _stage90SkipStatus = "entry-node-added";
         GD.Print("OPENNV_CREATION_DIAG phase=entry_node_added");
         _raceSexEntry.Configure(_raceSexContract, _character, _pluginStack, _imageSpacePresenter());
-        _stage90SkipStatus = $"configured:{_raceSexEntry.State}";
         GD.Print($"OPENNV_CREATION_DIAG phase=configure_returned state={_raceSexEntry.State}");
         GD.Print(
             $"OPENNV_NATIVE_RACESEX_OPEN quest={_machine.QuestEditorId} stage={_machine.Stage} " +
