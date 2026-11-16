@@ -70,3 +70,54 @@ appropriate path. Do not copy PC-only tooling blindly into the Android APK.
 
 No compiled-script parity is claimed by this audit. No PC runtime code has yet
 been imported by this audit.
+
+
+## Toolchain and CI verification
+
+The Android repository's actual pinned build configuration is more specific
+than the README summary:
+
+- `global.json` pins .NET SDK `9.0.311`.
+- `runtime/OpenNV.csproj` uses `Godot.NET.Sdk/4.7.2`, with `net8.0`
+  generally and `net9.0` when `GodotTargetPlatform=android`.
+- `.github/workflows/android-apk.yml` installs .NET `9.0.311`, Godot
+  `4.7.2` Mono, and the matching `4.7.2.stable.mono` Android export
+  templates. It then restores/builds the Android target and exports an ARM64
+  APK.
+- PC `main` pins .NET SDK `10.0.401` and
+  `Godot.NET.Sdk/4.8.0-dev.7`, targeting `net10.0`.
+
+This means the toolchain mismatch is confirmed in executable CI configuration,
+not merely inferred from README text. Updating only `global.json` or only the
+Godot SDK package would break reproducibility. The migration must move as one
+tested unit: SDK, Godot Mono editor/runtime, export templates, Android export
+templates, C# target framework, Android workload/tooling, and CI.
+
+## M1 import boundary
+
+PC PR #354 is the correct source snapshot for the first runtime port. Its
+summary confirms that the VM is not a standalone file: it dispatches through
+`FalloutReferenceScripts` and relies on script bindings/values, locals,
+condition functions, numeric expression handling, quest stages, dialogue,
+terminal, inventory, speech and reference-world owners.
+
+The Android project already has a distinct Android packaging and input path.
+Therefore the M1 port must not replace the Android workflow or merge the PC
+project wholesale. First create a compatibility branch that proves the PC
+Godot/.NET toolchain can still export an ARM64 APK; only then import the M1
+runtime dependency closure. If Godot 4.8-dev7 does not provide a matching
+Android Mono export template, evaluate a stable Godot version supported by
+both projects or isolate shared runtime code in a portable .NET library. Do
+not claim parity by leaving the Android APK on the old VM.
+
+## Acceptance gates for the first code port
+
+- Android CI uses the same selected Godot/.NET baseline as the imported runtime.
+- Existing Preview 3 startup, character creation, furniture interaction,
+  Pip-Boy/touch UI, archive loading and save import/export paths remain covered.
+- Synthetic compiled-script tests cover operand decoding, expressions,
+  branching, loops, variable assignment, commands and event dispatch.
+- The Android export contains the updated runtime assembly and ARM64 native
+  libraries.
+- Device testing confirms a real owned FNV save can continue after a cold
+  process restart; no old package or save is removed during testing.
