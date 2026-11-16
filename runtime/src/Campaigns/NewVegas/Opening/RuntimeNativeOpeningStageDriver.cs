@@ -53,6 +53,8 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private FalloutSkyLightingState? _skyLighting;
     private bool _restoringEnteredStage;
     private Func<RuntimeNativeImageSpace> _imageSpacePresenter = null!;
+    private Label? _openingDiagnosticLabel;
+    private double _openingDiagnosticElapsed;
     internal string? ExecutionError { get; private set; }
     private readonly List<object> _headTrackingCommands = [];
     internal object[] HeadTrackingCommands => _headTrackingCommands.ToArray();
@@ -232,6 +234,8 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
 
     public override void _Process(double delta)
     {
+        _openingDiagnosticElapsed += delta;
+        UpdateOpeningDiagnosticOverlay();
         if (ExecutionError is not null) return;
         try
         {
@@ -263,6 +267,8 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
 
     public override void _Ready()
     {
+        CreateOpeningDiagnosticOverlay();
+        UpdateOpeningDiagnosticOverlay();
         _playerPackage = new RuntimeNativePlayerPackage(_pluginStack, _player);
         _speech = new RuntimeNativeSpeech();
         _speech.InfoCompleted += _ =>
@@ -290,9 +296,54 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         ApplyEnteredActorCommands();
     }
 
+    private void CreateOpeningDiagnosticOverlay()
+    {
+        var layer = new CanvasLayer { Name = "OpeningDiagnosticOverlay", Layer = 250 };
+        layer.ProcessMode = ProcessModeEnum.Always;
+        AddChild(layer);
+        var backdrop = new ColorRect
+        {
+            Name = "Background",
+            Color = new Color(0.015f, 0.02f, 0.03f, 0.88f),
+            Position = new Vector2(12, 12),
+            Size = new Vector2(900, 150),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        layer.AddChild(backdrop);
+        _openingDiagnosticLabel = new Label
+        {
+            Name = "Checkpoint",
+            Position = new Vector2(24, 20),
+            Size = new Vector2(875, 136),
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        _openingDiagnosticLabel.AddThemeColorOverride("font_color", Colors.White);
+        _openingDiagnosticLabel.AddThemeFontSizeOverride("font_size", 18);
+        layer.AddChild(_openingDiagnosticLabel);
+        GD.Print("OPENNV_OPENING_CHECKPOINT_OVERLAY_CREATED");
+    }
+
+    private void UpdateOpeningDiagnosticOverlay()
+    {
+        if (_openingDiagnosticLabel is null) return;
+        var configured = _machine is not null;
+        var quest = configured ? _machine.QuestEditorId : "not-configured";
+        var stage = configured ? _machine.Stage.ToString(System.Globalization.CultureInfo.InvariantCulture) : "n/a";
+        var blockers = configured ? string.Join(",", _machine.PendingBlockers) : "n/a";
+        _openingDiagnosticLabel.Text =
+            "OPENNEVADA · NEW GAME CHECKPOINT\n" +
+            $"Driver: READY   Elapsed: {_openingDiagnosticElapsed:F1}s   Configured: {configured}\n" +
+            $"Quest: {quest}   Stage: {stage}   Blockers: {blockers}\n" +
+            $"Player: {_player is not null}   Cell: {_activeCell}   Movie: {_moviePlaying}   " +
+            $"Race/sex UI: {_raceSexEntry is not null}   Name UI: {_nameEntry is not null}\n" +
+            $"Error: {ExecutionError ?? "none"}";
+    }
+
     private void Synchronize()
     {
         ApplyEnteredActorCommands();
+        UpdateOpeningDiagnosticOverlay();
         if (ExecutionError is not null) return;
         _player.ApplySourceControls(_machine.ControlState);
         SynchronizeNameEntry();
