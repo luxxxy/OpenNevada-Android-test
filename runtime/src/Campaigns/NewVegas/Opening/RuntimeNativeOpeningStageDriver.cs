@@ -55,9 +55,9 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private Func<RuntimeNativeImageSpace> _imageSpacePresenter = null!;
     private Label? _openingDiagnosticLabel;
     private double _openingDiagnosticElapsed;
-    private double _raceMenuFallbackElapsed;
-    private bool _raceMenuFallbackAttempted;
-    private string _raceMenuFallbackStatus = "not-started";
+    private double _stage90SkipElapsed;
+    private bool _stage90SkipAttempted;
+    private string _stage90SkipStatus = "not-started";
     internal string? ExecutionError { get; private set; }
     private readonly List<object> _headTrackingCommands = [];
     internal object[] HeadTrackingCommands => _headTrackingCommands.ToArray();
@@ -241,6 +241,41 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         UpdateOpeningDiagnosticOverlay();
         // The driver must process while paused only to refresh diagnostics; gameplay
         // simulation and quest scripts must remain suspended behind modal screens.
+        // VCG00's own timer script advances 90 -> 95 -> 100. If that
+        // progression stalls on Android, skip only stage 90 and preserve
+        // the original stage-95/100 continuation. Character creation belongs
+        // to VCG01, not to this VCG00 transition.
+        if (!_stage90SkipAttempted &&
+            QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
+            Stage == 90 && PendingBlockers.Count == 0 && _raceSexEntry is null &&
+            _nameEntry is null && _vigorEntry is null && _tagSkillEntry is null && _traitEntry is null &&
+            !_moviePlaying && _recipeMenu is null && _barterMenu is null)
+        {
+            _stage90SkipElapsed += delta;
+            if (_stage90SkipElapsed >= 2.0)
+            {
+                _stage90SkipAttempted = true;
+                _stage90SkipStatus = "skipping-90-to-95";
+                try
+                {
+                    _machine.EnterScriptStage(FalloutNativeCampaignSave.OpeningQuestEditorId, 95);
+                    _stage90SkipStatus = "entered-stage-95";
+                    GD.PushWarning("OPENNV_NATIVE_OPENING_STAGE_SKIP quest=VCG00 from=90 to=95 reason=stalled-stage-progression");
+                    Synchronize();
+                }
+                catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
+                {
+                    _stage90SkipStatus = $"failed:{error.GetType().Name}";
+                    ExecutionError = error.Message;
+                    GD.PushError($"OPENNV_NATIVE_OPENING_STAGE_SKIP_FAILED: {error.Message}");
+                }
+            }
+        }
+        else if (!QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) ||
+                 Stage != 90)
+        {
+            _stage90SkipElapsed = 0;
+        }
         if (GetTree().Paused || ExecutionError is not null) return;
         try
         {
@@ -268,41 +303,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
                 return;
             }
         }
-        // VCG00's own timer script advances 90 -> 95 -> 100. If that
-        // progression stalls on Android, skip only stage 90 and preserve
-        // the original stage-95/100 continuation. Character creation belongs
-        // to VCG01, not to this VCG00 transition.
-        if (!_raceMenuFallbackAttempted &&
-            QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
-            Stage == 90 && PendingBlockers.Count == 0 && _raceSexEntry is null &&
-            _nameEntry is null && _vigorEntry is null && _tagSkillEntry is null && _traitEntry is null &&
-            !_moviePlaying && _recipeMenu is null && _barterMenu is null)
-        {
-            _raceMenuFallbackElapsed += delta;
-            if (_raceMenuFallbackElapsed >= 2.0)
-            {
-                _raceMenuFallbackAttempted = true;
-                _raceMenuFallbackStatus = "skipping-90-to-95";
-                try
-                {
-                    _machine.EnterScriptStage(FalloutNativeCampaignSave.OpeningQuestEditorId, 95);
-                    _raceMenuFallbackStatus = "entered-stage-95";
-                    GD.PushWarning("OPENNV_NATIVE_OPENING_STAGE_SKIP quest=VCG00 from=90 to=95 reason=stalled-stage-progression");
-                    Synchronize();
-                }
-                catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
-                {
-                    _raceMenuFallbackStatus = $"failed:{error.GetType().Name}";
-                    ExecutionError = error.Message;
-                    GD.PushError($"OPENNV_NATIVE_OPENING_STAGE_SKIP_FAILED: {error.Message}");
-                }
-            }
-        }
-        else if (!QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) ||
-                 Stage != 90)
-        {
-            _raceMenuFallbackElapsed = 0;
-        }
+
     }
 
     public override void _Ready()
@@ -383,7 +384,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             $"Driver: READY   Elapsed: {_openingDiagnosticElapsed:F1}s   Configured: {configured}\n" +
             $"Quest: {quest}   Stage: {stage}   Blockers: {blockers}\n" +
             $"Quest script: {script}\n" +
-            $"Race fallback: attempted={_raceMenuFallbackAttempted} elapsed={_raceMenuFallbackElapsed:F1}s state={_raceMenuFallbackStatus}\n" +
+            $"Stage 90 skip: attempted={_stage90SkipAttempted} elapsed={_stage90SkipElapsed:F1}s state={_stage90SkipStatus}\n" +
             $"Player: {_player is not null}   Cell: {_activeCell}   Movie: {_moviePlaying}   " +
             $"Race/sex UI: {_raceSexEntry is not null}   Name UI: {_nameEntry is not null}\n" +
             $"Error: {ExecutionError ?? "none"}";
@@ -523,16 +524,16 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         }
         if (_raceSexEntry is not null)
             return;
-        _raceMenuFallbackStatus = "blocker-detected";
+        _stage90SkipStatus = "blocker-detected";
         GD.Print($"OPENNV_CREATION_DIAG phase=blocker_detected quest={_machine.QuestEditorId} stage={_machine.Stage} blockers={string.Join(',', _machine.PendingBlockers)}");
         _raceSexEntry = new RuntimeNativeRaceSexEntry();
         AddChild(_raceSexEntry);
         _raceSexEntry.Accepted += AcceptCharacter;
         _raceSexEntry.Failed += error => ExecutionError = error.Message;
-        _raceMenuFallbackStatus = "entry-node-added";
+        _stage90SkipStatus = "entry-node-added";
         GD.Print("OPENNV_CREATION_DIAG phase=entry_node_added");
         _raceSexEntry.Configure(_raceSexContract, _character, _pluginStack, _imageSpacePresenter());
-        _raceMenuFallbackStatus = $"configured:{_raceSexEntry.State}";
+        _stage90SkipStatus = $"configured:{_raceSexEntry.State}";
         GD.Print($"OPENNV_CREATION_DIAG phase=configure_returned state={_raceSexEntry.State}");
         GD.Print(
             $"OPENNV_NATIVE_RACESEX_OPEN quest={_machine.QuestEditorId} stage={_machine.Stage} " +
