@@ -5,6 +5,22 @@ namespace OpenNV.Runtime.Content;
 
 internal static class FalloutScriptLocals
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FalloutPluginStack,
+        System.Collections.Concurrent.ConcurrentDictionary<FalloutFormKey, Lazy<FalloutPluginRecord?>>> WeaponScripts = new();
+
+    // Only immutable winning SCRI metadata is retained. The firing instance's
+    // event list and its continued membership in inventory are resolved live.
+    internal static FalloutPluginRecord? AttachedWeaponScript(FalloutPluginStack records, FalloutFormKey weapon)
+    {
+        var source = records.GetEffective(weapon);
+        if (source.Signature != "WEAP") throw new InvalidDataException("Weapon script metadata requires a winning WEAP.");
+        // Cached metadata must not outlive the source reader or hide a changed
+        // source extent; retain the same read guard as ordinary field reads.
+        source.Plugin.ValidateReadSource();
+        return WeaponScripts.GetOrCreateValue(records).GetOrAdd(weapon,
+            _ => new(() => AttachedScript(records, source), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
+
     internal static FalloutPluginRecord? AttachedScript(FalloutPluginStack records, FalloutPluginRecord owner)
     {
         var record = owner.Signature is "REFR" or "ACHR" or "ACRE" ?
@@ -45,9 +61,10 @@ internal static class FalloutScriptLocals
             var name = FalloutDialogueTopic.Text(field.Data.Span);
             if (declarations.TryGetValue(index.Value, out var previous))
             {
-                // SLSD has an index, one flag byte and 19 unused bytes. Owned
-                // duplicate declarations contain different compiler padding;
-                // only the slot, name and flags define the same local.
+                // This declaration lookup joins slot, name and storage kind.
+                // SLSD also carries an initial payload at bytes 8..15; runtime
+                // cell owners must preserve that payload and source entry order.
+                // Declaration equality does not certify runtime-cell equality.
                 if (previous.Name != name || previous.Flags != flags)
                     throw new InvalidDataException($"Conflicting duplicate script variable slot {index} in {script.FormKey}.");
             }
@@ -61,20 +78,51 @@ internal static class FalloutScriptLocals
         }
         if (index is not null) throw new InvalidDataException("Script variable has no source name.");
 
-        var sourceKinds = ReadSourceKinds(script);
+        var sourceKinds = ReadSourceKinds(script, declarations);
         if (sourceKinds.Keys.Any(name => !variables.ContainsKey(name)))
             throw new InvalidDataException("Script source declares a variable without a compiled slot.");
         return variables.ToDictionary(pair => pair.Key,
             pair => new FalloutScriptLocalDeclaration(pair.Value.Index,
-                sourceKinds.GetValueOrDefault(pair.Key, FalloutScriptLocalKind.Number)),
+                sourceKinds.GetValueOrDefault(pair.Key, FalloutScriptLocalKind.Number),
+                (pair.Value.Flags & 1) != 0),
             StringComparer.OrdinalIgnoreCase);
     }
 
+    internal static IReadOnlyDictionary<uint, FalloutScriptLocalDeclaration> ReadSlots(
+        FalloutPluginRecord script) =>
+        ReadDeclarations(script).Values.ToDictionary(declaration => declaration.Index);
+
     private static IReadOnlyDictionary<string, FalloutScriptLocalKind> ReadSourceKinds(
-        FalloutPluginRecord script)
+        FalloutPluginRecord script, IReadOnlyDictionary<uint, (byte Flags, string Name)> declarations)
     {
         var source = script.ReadSubrecords().Where(field => field.Signature == "SCTX").ToArray();
-        if (source.Length == 0) return new Dictionary<string, FalloutScriptLocalKind>();
+        if (source.Length == 0)
+        {
+            var compiledResult = new Dictionary<string, FalloutScriptLocalKind>(StringComparer.OrdinalIgnoreCase);
+            foreach (var field in script.ReadSubrecords())
+            {
+                if (field.Signature == "SCRV" && field.Data.Length == 4)
+                {
+                    var slotIndex = BinaryPrimitives.ReadUInt32LittleEndian(field.Data.Span);
+                    if (declarations.TryGetValue(slotIndex, out var slot))
+                        compiledResult[slot.Name] = FalloutScriptLocalKind.Form;
+                }
+                else if (field.Signature == "SCDA" && field.Data.Length > 0)
+                {
+                    foreach (var instruction in FalloutCompiledScript.Read(field.Data.Span))
+                    {
+                        if (instruction.Opcode == 0x001F && instruction.PayloadLength == 2)
+                        {
+                            var slotIndex = BinaryPrimitives.ReadUInt16LittleEndian(
+                                field.Data.Span.Slice(instruction.PayloadOffset, 2));
+                            if (declarations.TryGetValue(slotIndex, out var slot))
+                                compiledResult[slot.Name] = FalloutScriptLocalKind.Form;
+                        }
+                    }
+                }
+            }
+            return compiledResult;
+        }
         if (source.Length != 1) throw new InvalidDataException("Script source is ambiguous.");
         var result = new Dictionary<string, FalloutScriptLocalKind>(StringComparer.OrdinalIgnoreCase);
         foreach (var raw in FalloutDialogueTopic.ScriptText(source[0].Data.Span).Split('\n'))
@@ -96,9 +144,10 @@ internal static class FalloutScriptLocals
             };
             if (kind is not { } localKind) continue;
             // Retail source contains digit-leading local names and trailing
-            // author notes without comment delimiters. SLSD/SCVR owns the
-            // slot; only its declared value kind is needed at admission.
-            var declaration = Regex.Match(line, @"^[A-Za-z_][A-Za-z0-9_]*\s+([A-Za-z0-9_]+)(?=\s|$)", RegexOptions.CultureInvariant);
+            // punctuation/author notes without comment delimiters. Read the
+            // maximal identifier token; SLSD/SCVR must still supply that exact
+            // slot. This metadata join does not admit trailing text to execution.
+            var declaration = Regex.Match(line, @"^[A-Za-z_][A-Za-z0-9_]*\s+([A-Za-z0-9_]+)", RegexOptions.CultureInvariant);
             var name = declaration.Groups[1].Value;
             if (!declaration.Success || result.TryGetValue(name, out var previous) && previous != localKind)
                 throw new InvalidDataException($"Script {script.FormKey} source variable declaration is ambiguous: {line}");
