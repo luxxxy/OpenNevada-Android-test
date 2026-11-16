@@ -236,7 +236,9 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     {
         _openingDiagnosticElapsed += delta;
         UpdateOpeningDiagnosticOverlay();
-        if (ExecutionError is not null) return;
+        // The driver must process while paused only to refresh diagnostics; gameplay
+        // simulation and quest scripts must remain suspended behind modal screens.
+        if (GetTree().Paused || ExecutionError is not null) return;
         try
         {
             _ingestibles.Advance(delta);
@@ -267,6 +269,8 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
 
     public override void _Ready()
     {
+        // Keep the checkpoint HUD alive while character-creation menus pause the tree.
+        ProcessMode = ProcessModeEnum.Always;
         CreateOpeningDiagnosticOverlay();
         UpdateOpeningDiagnosticOverlay();
         _playerPackage = new RuntimeNativePlayerPackage(_pluginStack, _player);
