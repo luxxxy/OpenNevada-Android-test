@@ -310,7 +310,8 @@ internal sealed partial class NativeGodotLauncher : Control
                     ? GodotSaveMigrationBundle.ImportLegacySaveFile("newvegas", NewVegasSavePath(), path)
                     : GodotSaveMigrationBundle.Import("newvegas", NewVegasSavePath(), path);
                 _toast.Text = $"Imported {result.ImportedSaveSlots} save(s) as separate slots. " +
-                    $"{result.ImportedScriptFiles} script file(s) restored; {result.SkippedScriptConflicts} existing script file(s) kept.";
+                    $"{result.ImportedScriptFiles} script file(s) restored; {result.SkippedScriptConflicts} existing script file(s) kept. " +
+                    "Open the in-game save browser; saves from a different game/mod setup will be skipped. Continue was not replaced.";
                 _toast.AddThemeColorOverride("font_color", new Color(0.47f, 0.84f, 0.62f));
             }
         }
