@@ -276,7 +276,7 @@ internal sealed partial class NativeGodotLauncher : Control
             Access = FileDialog.AccessEnum.Filesystem,
             Title = export ? "Export OpenNV New Vegas save backup" : "Import OpenNV New Vegas save backup",
             CurrentFile = "OpenNV-NewVegas-Backup.opennvbackup",
-            Filters = ["*.opennvbackup ; OpenNV save backup"],
+            Filters = ["*.opennvbackup ; OpenNV save backup", "*.json ; OpenNV campaign save"],
         };
         _saveMigrationDialog.FileSelected += path => CompleteSaveMigration(export, path);
         _saveMigrationDialog.Canceled += CloseSaveMigrationDialog;
@@ -306,7 +306,9 @@ internal sealed partial class NativeGodotLauncher : Control
             }
             else
             {
-                var result = GodotSaveMigrationBundle.Import("newvegas", NewVegasSavePath(), path);
+                var result = Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase)
+                    ? GodotSaveMigrationBundle.ImportLegacySaveFile("newvegas", NewVegasSavePath(), path)
+                    : GodotSaveMigrationBundle.Import("newvegas", NewVegasSavePath(), path);
                 _toast.Text = $"Imported {result.ImportedSaveSlots} save(s) as separate slots. " +
                     $"{result.ImportedScriptFiles} script file(s) restored; {result.SkippedScriptConflicts} existing script file(s) kept.";
                 _toast.AddThemeColorOverride("font_color", new Color(0.47f, 0.84f, 0.62f));
