@@ -237,45 +237,6 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
 
     public override void _Process(double delta)
     {
-        _openingDiagnosticElapsed += delta;
-        UpdateOpeningDiagnosticOverlay();
-        // The driver must process while paused only to refresh diagnostics; gameplay
-        // simulation and quest scripts must remain suspended behind modal screens.
-        // VCG00's own timer script advances 90 -> 95 -> 100. If that
-        // progression stalls on Android, skip only stage 90 and preserve
-        // the original stage-95/100 continuation. Character creation belongs
-        // to VCG01, not to this VCG00 transition.
-        if (!_stage90SkipAttempted &&
-            QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
-            Stage == 90 && PendingBlockers.Count == 0 && _raceSexEntry is null &&
-            _nameEntry is null && _vigorEntry is null && _tagSkillEntry is null && _traitEntry is null &&
-            !_moviePlaying && _recipeMenu is null && _barterMenu is null)
-        {
-            _stage90SkipElapsed += delta;
-            if (_stage90SkipElapsed >= 2.0)
-            {
-                _stage90SkipAttempted = true;
-                _stage90SkipStatus = "skipping-90-to-95";
-                try
-                {
-                    _machine.EnterScriptStage(FalloutNativeCampaignSave.OpeningQuestEditorId, 95);
-                    _stage90SkipStatus = "entered-stage-95";
-                    GD.PushWarning("OPENNV_NATIVE_OPENING_STAGE_SKIP quest=VCG00 from=90 to=95 reason=stalled-stage-progression");
-                    Synchronize();
-                }
-                catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
-                {
-                    _stage90SkipStatus = $"failed:{error.GetType().Name}";
-                    ExecutionError = error.Message;
-                    GD.PushError($"OPENNV_NATIVE_OPENING_STAGE_SKIP_FAILED: {error.Message}");
-                }
-            }
-        }
-        else if (!QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) ||
-                 Stage != 90)
-        {
-            _stage90SkipElapsed = 0;
-        }
         if (GetTree().Paused || ExecutionError is not null) return;
         try
         {
@@ -311,6 +272,19 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         // Keep the checkpoint HUD and recovery watchdog alive while character-creation menus pause the tree.
         ProcessMode = ProcessModeEnum.Always;
         SetProcess(true);
+        // Use an independent always-processing Timer for the checkpoint/watchdog.
+        // This avoids relying on the gameplay driver's _Process callback while
+        // the SceneTree is paused by a modal character-creation screen.
+        var watchdog = new Timer
+        {
+            Name = "OpeningDiagnosticWatchdog",
+            WaitTime = 0.25,
+            OneShot = false,
+            Autostart = true,
+            ProcessMode = ProcessModeEnum.Always
+        };
+        watchdog.Timeout += OnOpeningWatchdogTimeout;
+        AddChild(watchdog);
         CreateOpeningDiagnosticOverlay();
         UpdateOpeningDiagnosticOverlay();
         _playerPackage = new RuntimeNativePlayerPackage(_pluginStack, _player);
@@ -338,6 +312,47 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         AddChild(_speech);
         ConfigureConversation();
         ApplyEnteredActorCommands();
+    }
+
+    private void OnOpeningWatchdogTimeout()
+    {
+        _openingDiagnosticElapsed += 0.25;
+        // VCG00 normally progresses 90 -> 95 -> 100. Keep this recovery
+        // watchdog separate from gameplay processing and allow it while paused.
+        if (!_stage90SkipAttempted &&
+            _machine is not null &&
+            QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
+            Stage == 90 && PendingBlockers.Count == 0 && _raceSexEntry is null &&
+            _nameEntry is null && _vigorEntry is null && _tagSkillEntry is null && _traitEntry is null &&
+            !_moviePlaying && _recipeMenu is null && _barterMenu is null)
+        {
+            _stage90SkipElapsed += 0.25;
+            if (_stage90SkipElapsed >= 2.0)
+            {
+                _stage90SkipAttempted = true;
+                _stage90SkipStatus = "skipping-90-to-95";
+                try
+                {
+                    _machine.EnterScriptStage(FalloutNativeCampaignSave.OpeningQuestEditorId, 95);
+                    _stage90SkipStatus = "entered-stage-95";
+                    GD.PushWarning("OPENNV_NATIVE_OPENING_STAGE_SKIP quest=VCG00 from=90 to=95 reason=stalled-stage-progression");
+                    Synchronize();
+                }
+                catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
+                {
+                    _stage90SkipStatus = $"failed:{error.GetType().Name}";
+                    ExecutionError = error.Message;
+                    GD.PushError($"OPENNV_NATIVE_OPENING_STAGE_SKIP_FAILED: {error.Message}");
+                }
+            }
+        }
+        else if (_machine is not null &&
+                 (!QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) ||
+                  Stage != 90))
+        {
+            _stage90SkipElapsed = 0;
+        }
+        UpdateOpeningDiagnosticOverlay();
     }
 
     private void CreateOpeningDiagnosticOverlay()
