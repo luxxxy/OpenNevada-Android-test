@@ -9,7 +9,7 @@ Set-StrictMode -Version Latest
 
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $runtime = Join-Path $repository "runtime"
-$solution = Join-Path $runtime "OpenNV.sln"
+$project = Join-Path $runtime "OpenNV.csproj"
 
 $pythonFiles = @(& git -C $repository ls-files --cached --others --exclude-standard -- "*.py" "*.pyw" "*.spec" |
     Where-Object { Test-Path -LiteralPath (Join-Path $repository $_) -PathType Leaf })
@@ -39,11 +39,11 @@ if (-not (Test-Path -LiteralPath $Godot -PathType Leaf)) {
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
 $env:DOTNET_NOLOGO = "1"
 
-& dotnet build $solution --configuration Release --nologo
+& dotnet build $project --configuration Release --nologo
 if ($LASTEXITCODE -ne 0) { throw "OpenNV Release build failed." }
-& dotnet format $solution --verify-no-changes --no-restore --verbosity minimal
+& dotnet format $project --verify-no-changes --no-restore --verbosity minimal
 if ($LASTEXITCODE -ne 0) { throw "OpenNV formatting or analyzer checks failed." }
-& dotnet build $solution --configuration Debug --nologo
+& dotnet build $project --configuration Debug --nologo
 if ($LASTEXITCODE -ne 0) { throw "OpenNV Debug build failed." }
 
 $harnessOutput = Join-Path $repository "tmp\runtime-gate\live-harness"
@@ -93,7 +93,7 @@ $probes = @(
 )
 foreach ($probe in $probes) {
     $project = Join-Path $repository "contract-tests\$probe\$probe.csproj"
-    & dotnet run --project $project --configuration Release
+    & dotnet run --project $project --configuration Release -p:TargetFramework=net10.0
     if ($LASTEXITCODE -ne 0) { throw "$probe failed." }
 }
 
