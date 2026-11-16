@@ -142,6 +142,9 @@ internal sealed class FalloutScriptValueStore
 
     // Shared reference/quest/result stream; its sequence is not retail parity.
     internal uint RandomPercent() => RandomBounded(100);
+    internal int RandomIndex(int exclusiveUpperBound) => exclusiveUpperBound > 0
+        ? checked((int)RandomBounded((uint)exclusiveUpperBound))
+        : throw new ArgumentOutOfRangeException(nameof(exclusiveUpperBound));
     internal uint RandomBounded(uint exclusiveUpperBound) => (_random ??= new(BitConverter.ToUInt64(
         System.Security.Cryptography.RandomNumberGenerator.GetBytes(sizeof(ulong))))).NextBounded(exclusiveUpperBound);
 
