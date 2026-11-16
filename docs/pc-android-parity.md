@@ -165,8 +165,11 @@ The PC baseline has advanced to Godot 4.8-dev7 / .NET 10 and contains shared
 script/dialogue execution work plus experimental classic Fallout OpenXR
 presentation. The Android fork's documented baseline still names Godot 4.7.2,
 and its current work includes Android-specific New Vegas dialogue/package and
-companion fixes. First resolve the runtime/toolchain compatibility and establish
-a source-level diff; then port the missing PC runtime work without losing those
+companion fixes. The first source-level findings are recorded in
+[the initial synchronization audit](android-sync-audit.md): the compiled-script
+M1 decoder/command table/VM are absent on Android, and several shared integration
+owners are older Android variants. First resolve the runtime/toolchain
+compatibility, then port M1 as a dependency-aware subsystem without losing those
 Android fixes.
 
 No parity percentage or completion claim is made by creating this plan.
