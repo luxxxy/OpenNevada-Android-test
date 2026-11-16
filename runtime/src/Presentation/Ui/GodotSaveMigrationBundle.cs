@@ -207,7 +207,7 @@ internal static class GodotSaveMigrationBundle
             throw new InvalidDataException("The backup contains no campaign saves.");
 
         var staging = Path.Combine(parent, ".opennv-save-import-" + Guid.NewGuid().ToString("N"));
-        var slotDirectory = savePath + Gameplay.State.RuntimeSaveSlotCatalog.SlotDirectorySuffix;
+        var slotDirectory = savePath + RuntimeSaveSlotCatalog.SlotDirectorySuffix;
         var scriptDirectory = Path.Combine(parent, "script-config");
         var created = new List<string>();
         var importedSlots = 0;
