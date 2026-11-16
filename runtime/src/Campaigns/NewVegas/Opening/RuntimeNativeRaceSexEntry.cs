@@ -27,6 +27,7 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
     internal NativeOwnedActorPreview Portrait => _portrait ?? throw new InvalidOperationException("Character portrait is not ready.");
     internal ClassicPortraitMode PortraitMode { get; private set; }
     private Button? _envision;
+    private Control? _failureOverlay;
 
     internal void EnableEnvision(ClassicPortraitMode initial)
     {
@@ -88,19 +89,29 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
         RuntimeNativeImageSpace? imageSpace = null)
     {
         Name = "NativeRaceSexEntry"; Layer = 120; ProcessMode = ProcessModeEnum.Always;
+        GD.Print($"OPENNV_CREATION_DIAG phase=configure_begin viewport={GetViewport().GetVisibleRect().Size}");
         _records = records;
         var source = RuntimeLiveContentSource.Current ?? throw new InvalidOperationException("Creation has no owned content source.");
         _settings = FalloutInstallationSettings.Read(source);
+        GD.Print("OPENNV_CREATION_DIAG phase=settings_ready");
         _creation = new(records, contract, current, _settings);
+        GD.Print($"OPENNV_CREATION_DIAG phase=contract_ready pages={_creation.Headers.Count} controls={_creation.Controls.Controls.Count} race={current.RaceEditorId}");
         _device = new("meshes/terminals/nv_reflectron_ui.nif", _settings) { Size = GetViewport().GetVisibleRect().Size };
         AddChild(_device);
+        GD.Print($"OPENNV_CREATION_DIAG phase=device_added visible={_device.Visible} size={_device.Size}");
         _screen = new(_device, records, _settings, Fail); AddChild(_screen);
         _screen.Menu.Navigate += Navigate;
+        GD.Print($"OPENNV_CREATION_DIAG phase=screen_added visible={_screen.Visible} content={_screen.ContentView.Size}");
         GetViewport().SizeChanged += Resize;
         _pausedTree = GetTree(); _previousPause = _pausedTree.Paused; _pausedTree.Paused = true;
+        GD.Print($"OPENNV_CREATION_DIAG phase=tree_paused previous={_previousPause}");
         _background = imageSpace?.BeginMenuBackground(records, FalloutMenuBackgroundKind.Popup);
         Input.MouseMode = Input.MouseModeEnum.Visible;
-        RefreshPreview(); ShowPage();
+        GD.Print("OPENNV_CREATION_DIAG phase=preview_begin");
+        RefreshPreview();
+        GD.Print($"OPENNV_CREATION_DIAG phase=preview_ready portrait={_portrait is not null} content={_screen.ContentView.Size}");
+        ShowPage();
+        GD.Print($"OPENNV_CREATION_DIAG phase=page_ready page={_page} screenVisible={_screen.Visible} deviceVisible={_device.Visible}");
         GD.Print($"OPENNV_NATIVE_CREATION_PRESENTED pages={_creation.Headers.Count} controls={_creation.Controls.Controls.Count} source=owned-nif-xml-fnt-ctl-player-records parity=unverified");
     }
     private void Resize() => _device.Size = GetViewport().GetVisibleRect().Size;
@@ -238,8 +249,42 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
     }
     private void Fail(Exception error)
     {
+        if (Error is not null) return;
         _background?.Dispose(); _background = null;
-        Error = error.Message; GD.PushError($"OPENNV_NATIVE_CREATION_UNBOUND {error}"); Failed?.Invoke(error);
+        Error = error.ToString();
+        GD.PushError($"OPENNV_NATIVE_CREATION_UNBOUND {error}");
+        GD.PushError($"OPENNV_CREATION_DIAG phase=failed page={_page} previewRevision={_previewRevision} " +
+            $"viewport={GetViewport().GetVisibleRect().Size} deviceVisible={_device?.Visible} " +
+            $"screenVisible={_screen?.Visible} content={_screen?.ContentView.Size}");
+        // Expose the failure on-device and release the pause owned by this menu.
+        var backdrop = new ColorRect
+        {
+            Color = new Color(0.015f, 0.02f, 0.03f, 0.96f),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            ZIndex = 100
+        };
+        backdrop.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        AddChild(backdrop);
+        var message = new Label
+        {
+            Text = "OPENING / CHARACTER CREATION ERROR\n\n" + error,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            ZIndex = 101
+        };
+        message.AddThemeColorOverride("font_color", Colors.White);
+        message.AddThemeFontSizeOverride("font_size", 18);
+        message.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        message.OffsetLeft = 24;
+        message.OffsetTop = 24;
+        message.OffsetRight = -24;
+        message.OffsetBottom = -24;
+        AddChild(message);
+        _failureOverlay = backdrop;
+        ReleasePause();
+        Failed?.Invoke(error);
     }
     internal void ReleasePause()
     {
