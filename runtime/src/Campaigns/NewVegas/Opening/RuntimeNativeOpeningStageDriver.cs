@@ -55,6 +55,8 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private Func<RuntimeNativeImageSpace> _imageSpacePresenter = null!;
     private Label? _openingDiagnosticLabel;
     private double _openingDiagnosticElapsed;
+    private double _raceMenuFallbackElapsed;
+    private bool _raceMenuFallbackAttempted;
     internal string? ExecutionError { get; private set; }
     private readonly List<object> _headTrackingCommands = [];
     internal object[] HeadTrackingCommands => _headTrackingCommands.ToArray();
@@ -264,6 +266,37 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
                 GD.PushError($"OPENNV_NATIVE_QUEST_SCRIPT_DIVERGENCE quest={QuestEditorId} stage={Stage}: {error.Message}");
                 return;
             }
+        }
+        // VCG00 stage 90 should open character creation. If its source script
+        // reaches a stable, unblocked state without doing so, provide one
+        // controlled fallback and let the normal MenuMode continuation run.
+        if (!_raceMenuFallbackAttempted &&
+            QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) &&
+            Stage == 90 && PendingBlockers.Count == 0 && _raceSexEntry is null &&
+            _nameEntry is null && _vigorEntry is null && _tagSkillEntry is null && _traitEntry is null &&
+            !_moviePlaying && _recipeMenu is null && _barterMenu is null)
+        {
+            _raceMenuFallbackElapsed += delta;
+            if (_raceMenuFallbackElapsed >= 2.0)
+            {
+                _raceMenuFallbackAttempted = true;
+                try
+                {
+                    _machine.BeginFallbackBlocker("showracemenu");
+                    GD.PushWarning("OPENNV_NATIVE_RACESEX_FALLBACK quest=VCG00 stage=90 reason=source-script-did-not-open-menu");
+                    Synchronize();
+                }
+                catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException)
+                {
+                    ExecutionError = error.Message;
+                    GD.PushError($"OPENNV_NATIVE_RACESEX_FALLBACK_FAILED: {error.Message}");
+                }
+            }
+        }
+        else if (!QuestEditorId.Equals(FalloutNativeCampaignSave.OpeningQuestEditorId, StringComparison.OrdinalIgnoreCase) ||
+                 Stage != 90)
+        {
+            _raceMenuFallbackElapsed = 0;
         }
     }
 
