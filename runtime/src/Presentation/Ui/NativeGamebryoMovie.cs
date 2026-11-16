@@ -246,10 +246,15 @@ internal sealed partial class NativeGamebryoMovie : CanvasLayer
         _decoder.Dispose();
         _audio?.Stop();
         SetMeta("opennv_movie_error", error.Message);
-        GD.PushError($"OPENNV_MOVIE_FAILED {error}");
-        var label = new Label { Text = $"Unable to play {_command.FileName}: {error.Message}", AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        label.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        AddChild(label);
+        GD.PushError($"OPENNV_MOVIE_FAILED source={_command.FileName} error={error}");
+
+        // A failed decoder must not strand the native opening quest behind
+        // PlayBink's blocker or leave the world paused with 3D disabled.
+        // Retail startup can continue without the optional intro movie.
+        RestoreWorld();
+        GD.PushWarning($"OPENNV_MOVIE_SKIPPED_AFTER_FAILURE source={_command.FileName} continuation=quest");
+        QueueFree();
+        _completed(interrupted: true);
     }
 
     private void RestoreWorld()
