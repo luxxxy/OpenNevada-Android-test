@@ -460,6 +460,10 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         var script = scriptProgress is { } progress
             ? $"runs={progress.Executions} next={progress.Remaining:F2}s error={progress.Error ?? "none"} cmds={progress.Commands}"
             : "not-found";
+        var hasSessionLayer = GetTree().Root.FindChild("NativeSessionLayer", true, false) is not null;
+        var hasPipBoyLayer = GetTree().Root.FindChild("NativePipBoyLayer", true, false) is not null;
+        var hasContainerLayer = GetTree().Root.FindChild("NativeContainerLayer", true, false) is not null;
+        var focusOwner = GetViewport().GuiGetFocusOwner()?.Name ?? "none";
         _openingDiagnosticLabel.Text =
             "OPENNEVADA · NEW GAME CHECKPOINT\n" +
             $"Driver: READY   Elapsed: {_openingDiagnosticElapsed:F1}s   Configured: {configured}\n" +
