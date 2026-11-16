@@ -1,5 +1,7 @@
 using Godot;
 using OpenNV.Runtime.Content;
+using OpenNV.Runtime.Compatibility.Jam;
+using OpenNV.Runtime.World.Cells;
 
 namespace OpenNV.Runtime.InputSystem;
 
@@ -110,12 +112,12 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
         {
             case InputEventScreenTouch touch when touch.Pressed:
                 _joystickHeld = true;
-                UpdateJoystick(touch.Position);
+                UpdateJoystick(touch.Position - _joystick.GlobalPosition);
                 _joystick.AcceptEvent();
                 break;
             case InputEventScreenDrag drag:
                 _joystickHeld = true;
-                UpdateJoystick(drag.Position);
+                UpdateJoystick(drag.Position - _joystick.GlobalPosition);
                 _joystick.AcceptEvent();
                 break;
             case InputEventScreenTouch touch when !touch.Pressed:
@@ -124,7 +126,7 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
                 break;
             case InputEventMouseButton mouse when mouse.ButtonIndex == MouseButton.Left:
                 _joystickHeld = mouse.Pressed;
-                if (_joystickHeld) UpdateJoystick(mouse.Position);
+                if (_joystickHeld) UpdateJoystick(mouse.Position - _joystick.GlobalPosition);
                 else ReleaseJoystick();
                 _joystick.AcceptEvent();
                 break;
