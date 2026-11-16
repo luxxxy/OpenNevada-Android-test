@@ -86,12 +86,16 @@ jobs:
           export/android/java_sdk_path = "$JAVA_HOME"
           EOF
 
-      - name: Import project and restore C# dependencies
+      - name: Restore, import, and build Android C# assembly
         shell: bash
         run: |
           set -euo pipefail
-          godot --headless --editor --path runtime --quit
           dotnet restore runtime/OpenNV.csproj -p:GodotTargetPlatform=android
+          godot --headless --editor --path runtime --quit
+          dotnet build runtime/OpenNV.csproj -p:GodotTargetPlatform=android --no-restore --configuration Debug
+          DLL_PATH="$(find runtime/.godot/mono -type f -name OpenNV.dll -path '*/bin/Debug/*' | head -n 1)"
+          test -n "$DLL_PATH"
+          strings "$DLL_PATH" | grep -F 'falloutallfnvbsa'
 
       - name: Export ARM64 debug APK
         shell: bash
@@ -101,6 +105,7 @@ jobs:
           godot --headless --path runtime --export-debug "Android Handheld Experimental" "$GITHUB_WORKSPACE/output/OpenNevada-Experimental-ARM64.apk"
           test -s output/OpenNevada-Experimental-ARM64.apk
           file output/OpenNevada-Experimental-ARM64.apk
+          unzip -p output/OpenNevada-Experimental-ARM64.apk assets/.godot/mono/publish/arm64/OpenNV.dll | strings | grep -F 'falloutallfnvbsa'
           sha256sum output/OpenNevada-Experimental-ARM64.apk
 
       - name: Upload APK artifact
