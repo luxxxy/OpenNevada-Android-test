@@ -67,6 +67,10 @@ internal partial class RuntimeNativePlayer
         return false;
     }
 
+    internal bool HasThirdPersonViewControl =>
+        _xr is null && _sourceCamera is null && _furniturePhase == 0 &&
+        GetMeta("opennv_source_pointofview_enabled", true).AsBool();
+
     internal bool ToggleThirdPersonView()
     {
         if (_xr is not null || _sourceCamera is not null || _furniturePhase != 0 ||
