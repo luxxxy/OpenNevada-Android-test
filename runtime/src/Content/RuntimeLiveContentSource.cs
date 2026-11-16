@@ -460,8 +460,7 @@ internal sealed class RuntimeLiveContentSource : IDisposable
                         // BSA and is not part of every retail installation. Ignore only
                         // that known optional entry in the retail default INI; all other
                         // missing archives remain errors.
-                        if (archiveIniPath is null &&
-                            name.Equals("Fallout - All-FNV!.bsa", StringComparison.OrdinalIgnoreCase))
+                        if (name.Equals("Fallout - All-FNV!.bsa", StringComparison.OrdinalIgnoreCase))
                             continue;
                         throw new FileNotFoundException($"Configured archive is absent from the selected Data folder: {name}");
                     }
