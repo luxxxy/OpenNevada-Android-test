@@ -111,7 +111,7 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
         RefreshPreview();
         GD.Print($"OPENNV_CREATION_DIAG phase=preview_ready portrait={_portrait is not null} content={_screen.ContentView.Size}");
         ShowPage();
-        GD.Print($"OPENNV_CREATION_DIAG phase=page_ready page={_page} screenVisible={_screen.Visible} deviceVisible={_device.Visible}");
+        GD.Print($"OPENNV_CREATION_DIAG phase=page_ready page={_page} screenAttached={_screen.IsInsideTree()} deviceVisible={_device.Visible}");
         GD.Print($"OPENNV_NATIVE_CREATION_PRESENTED pages={_creation.Headers.Count} controls={_creation.Controls.Controls.Count} source=owned-nif-xml-fnt-ctl-player-records parity=unverified");
     }
     private void Resize() => _device.Size = GetViewport().GetVisibleRect().Size;
