@@ -334,6 +334,12 @@ internal sealed class FalloutQuestScripts
         }
     }
 
+    internal (long Executions, double Remaining, string? Error)? ClaimedProgress(FalloutFormKey quest)
+    {
+        var instance = _instances.SingleOrDefault(value => value.Quest.FormKey == quest && value.Claimed);
+        return instance is null ? null : (instance.Executions, instance.Clock.Remaining, instance.Error);
+    }
+
     internal void AdvanceClaimed(FalloutFormKey quest, double seconds, FalloutQuestScriptHost host)
     {
         if (!double.IsFinite(seconds) || seconds < 0 || seconds > float.MaxValue) throw new ArgumentOutOfRangeException(nameof(seconds));
