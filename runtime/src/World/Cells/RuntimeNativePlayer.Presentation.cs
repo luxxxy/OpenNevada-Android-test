@@ -67,6 +67,17 @@ internal partial class RuntimeNativePlayer
         return false;
     }
 
+    internal bool ToggleThirdPersonView()
+    {
+        if (_xr is not null || _sourceCamera is not null || _furniturePhase != 0 ||
+            !GetMeta("opennv_source_pointofview_enabled", true).AsBool())
+            return false;
+        _thirdPersonMode = !_thirdPersonMode;
+        PublishThirdPersonCamera();
+        GD.Print($"OPENNV_THIRD_PERSON_TOUCH enabled={_thirdPersonMode}");
+        return true;
+    }
+
     private void PublishThirdPersonCamera()
     {
         if (_xr is not null) return;
