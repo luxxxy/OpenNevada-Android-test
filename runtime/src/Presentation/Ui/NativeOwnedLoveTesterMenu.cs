@@ -140,6 +140,7 @@ internal sealed partial class NativeOwnedLoveTesterMenu : Control
         _controlGuide.AddThemeColorOverride("font_color", new Color((guideColor >> 24) / 255f,
             ((guideColor >> 16) & 255) / 255f, ((guideColor >> 8) & 255) / 255f));
         guidePanel.AddChild(_controlGuide); AddChild(guidePanel);
+        BuildAndroidTouchControls();
         _geometry = _animated.FindChildren("*", "", true, false).OfType<MeshInstance3D>()
             .Where(mesh => mesh.HasMeta("opennv_nif_source_name"))
             .ToDictionary(mesh => mesh.GetMeta("opennv_nif_source_name").AsString(), StringComparer.Ordinal);
@@ -161,6 +162,45 @@ internal sealed partial class NativeOwnedLoveTesterMenu : Control
         SetMeta("opennv_ui_source", MenuPath); SetMeta("opennv_ui_presentation", "owned-nif-controller-manager-and-dds");
         SetMeta("opennv_ui_unbound", "matched-pixels,render-target-postprocessing,gamepad-repeat-timing");
         Resized += Layout; Refresh();
+    }
+
+    private void BuildAndroidTouchControls()
+    {
+        if (!OS.HasFeature("android")) return;
+        var bar = new HBoxContainer
+        {
+            Name = "AndroidSpecialControls",
+            AnchorLeft = .035f,
+            AnchorTop = .875f,
+            AnchorRight = .965f,
+            AnchorBottom = .985f,
+            Alignment = BoxContainer.AlignmentMode.Center,
+            MouseFilter = Control.MouseFilterEnum.Stop
+        };
+        bar.AddThemeConstantOverride("separation", 8);
+        AddChild(bar);
+
+        void Add(string label, Action action)
+        {
+            var button = new Button
+            {
+                Text = label,
+                CustomMinimumSize = new Vector2(0, 52),
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                FocusMode = Control.FocusModeEnum.None,
+                MouseFilter = Control.MouseFilterEnum.Stop
+            };
+            button.AddThemeFontSizeOverride("font_size", 15);
+            button.Pressed += action;
+            bar.AddChild(button);
+        }
+
+        // These mirror the source SPECIAL machine's shoulder/trigger/X controls.
+        Add("LB  PREV", () => Turn(-1));
+        Add("LT  −", () => Change(CurrentAttribute, -1));
+        Add("RT  +", () => Change(CurrentAttribute, 1));
+        Add("RB  NEXT", () => Turn(1));
+        Add("X  DONE", Submit);
     }
 
     private int ReviewPage => _state.Values.Count + 1;
