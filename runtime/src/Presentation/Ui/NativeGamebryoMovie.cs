@@ -254,7 +254,7 @@ internal sealed partial class NativeGamebryoMovie : CanvasLayer
         RestoreWorld();
         GD.PushWarning($"OPENNV_MOVIE_SKIPPED_AFTER_FAILURE source={_command.FileName} continuation=quest");
         QueueFree();
-        _completed(interrupted: true);
+        _completed(true);
     }
 
     private void RestoreWorld()
