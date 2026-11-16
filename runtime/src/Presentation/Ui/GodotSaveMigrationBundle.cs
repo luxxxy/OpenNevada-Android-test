@@ -156,6 +156,7 @@ internal static class GodotSaveMigrationBundle
                 throw new InvalidDataException("The backup manifest is empty.");
 
         if (manifest.Schema != BundleSchema ||
+            string.IsNullOrWhiteSpace(manifest.CampaignId) ||
             !manifest.CampaignId.Equals(campaignId, StringComparison.OrdinalIgnoreCase) ||
             manifest.Files is null || manifest.Files.Count == 0 || manifest.Files.Count > MaximumEntries)
             throw new InvalidDataException("The backup belongs to another campaign or has an unsupported format.");
@@ -275,7 +276,10 @@ internal static class GodotSaveMigrationBundle
         ArgumentException.ThrowIfNullOrWhiteSpace(legacySavePath);
         if (!campaignId.Equals("newvegas", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Standalone legacy save import is only supported for New Vegas.");
-        var bytes = File.ReadAllBytes(Path.GetFullPath(legacySavePath));
+        var legacyPath = Path.GetFullPath(legacySavePath);
+        if (new FileInfo(legacyPath).Length > MaximumUncompressedBytes)
+            throw new InvalidDataException("The legacy save is larger than the supported 256 MB limit.");
+        var bytes = File.ReadAllBytes(legacyPath);
         ValidateSaveBytes(bytes);
         var savePath = Path.GetFullPath(canonicalSavePath);
         var slotDirectory = savePath + RuntimeSaveSlotCatalog.SlotDirectorySuffix;
