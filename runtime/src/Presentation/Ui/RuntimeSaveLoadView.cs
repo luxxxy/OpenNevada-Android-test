@@ -17,6 +17,7 @@ internal static class RuntimeSaveLoadViewNumericContracts
 internal sealed partial class RuntimeSaveLoadView : CanvasLayer
 {
     private readonly ItemList _slots = new();
+    private Label _warning = null!;
     private RuntimeSaveSlotCatalog _catalog = null!;
     private Action? _save;
     private IReadOnlyList<RuntimeSaveSlotMetadata> _metadata = Array.Empty<RuntimeSaveSlotMetadata>();
@@ -59,6 +60,11 @@ internal sealed partial class RuntimeSaveLoadView : CanvasLayer
             RuntimeSaveLoadViewNumericContracts.MinimumWidth,
             RuntimeSaveLoadViewNumericContracts.RowHeight * 4.0f);
         stack.AddChild(_slots);
+        _warning = Label(string.Empty, RuntimeSaveLoadViewNumericContracts.BodyFontSize);
+        _warning.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _warning.AddThemeColorOverride("font_color", new Color(0.88f, 0.65f, 0.35f));
+        _warning.Visible = false;
+        stack.AddChild(_warning);
         if (_save is not null)
         {
             var create = Button("CREATE SAVE");
@@ -130,7 +136,16 @@ internal sealed partial class RuntimeSaveLoadView : CanvasLayer
 
     private void Refresh()
     {
-        _metadata = _catalog.ReadSlots();
+        var rejected = 0;
+        _metadata = _catalog.ReadSlots(rejected: (path, error) =>
+        {
+            rejected++;
+            GD.PushWarning($"OPENNV_SAVE_SLOT_SKIPPED path={path} reason={error.Message}");
+        });
+        _warning.Text = rejected == 0
+            ? string.Empty
+            : $"{rejected} save(s) were skipped because they are damaged or belong to a different game/mod setup.";
+        _warning.Visible = rejected > 0;
         _slots.Clear();
         foreach (var slot in _metadata)
         {
