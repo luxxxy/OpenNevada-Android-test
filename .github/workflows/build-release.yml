@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - codex/pc-feature-parity
 
 permissions:
   contents: read
