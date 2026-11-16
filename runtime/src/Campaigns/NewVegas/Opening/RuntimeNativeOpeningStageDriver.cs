@@ -352,23 +352,53 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         var backdrop = new ColorRect
         {
             Name = "Background",
-            Color = new Color(0.015f, 0.02f, 0.03f, 0.88f),
-            Position = new Vector2(12, 12),
-            Size = new Vector2(1100, 520),
+            Color = new Color(0.015f, 0.02f, 0.03f, 0.90f),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
+        backdrop.SetAnchorsPreset(Control.LayoutPreset.TopRight);
+        backdrop.OffsetLeft = -820;
+        backdrop.OffsetTop = 12;
+        backdrop.OffsetRight = -12;
+        backdrop.OffsetBottom = 472;
         layer.AddChild(backdrop);
+
         _openingDiagnosticLabel = new Label
         {
             Name = "Checkpoint",
-            Position = new Vector2(24, 20),
-            Size = new Vector2(1060, 430),
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
+        _openingDiagnosticLabel.SetAnchorsPreset(Control.LayoutPreset.TopRight);
+        _openingDiagnosticLabel.OffsetLeft = -800;
+        _openingDiagnosticLabel.OffsetTop = 24;
+        _openingDiagnosticLabel.OffsetRight = -28;
+        _openingDiagnosticLabel.OffsetBottom = 450;
         _openingDiagnosticLabel.AddThemeColorOverride("font_color", Colors.White);
-        _openingDiagnosticLabel.AddThemeFontSizeOverride("font_size", 18);
+        _openingDiagnosticLabel.AddThemeFontSizeOverride("font_size", 16);
         layer.AddChild(_openingDiagnosticLabel);
+
+        var toggle = new Button
+        {
+            Name = "ToggleDiagnostics",
+            Text = "DEBUG  ▾",
+            ToggleMode = true,
+            ButtonPressed = false,
+            FocusMode = Control.FocusModeEnum.None
+        };
+        toggle.SetAnchorsPreset(Control.LayoutPreset.TopRight);
+        toggle.OffsetLeft = -172;
+        toggle.OffsetTop = 12;
+        toggle.OffsetRight = -12;
+        toggle.OffsetBottom = 54;
+        layer.AddChild(toggle);
+        backdrop.Visible = false;
+        _openingDiagnosticLabel.Visible = false;
+        toggle.Toggled += visible =>
+        {
+            backdrop.Visible = visible;
+            _openingDiagnosticLabel.Visible = visible;
+            toggle.Text = visible ? "DEBUG  ▴" : "DEBUG  ▾";
+        };
         GD.Print("OPENNV_OPENING_CHECKPOINT_OVERLAY_CREATED");
     }
 
