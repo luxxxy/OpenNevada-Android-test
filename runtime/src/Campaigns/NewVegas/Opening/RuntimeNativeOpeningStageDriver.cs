@@ -354,7 +354,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             Name = "Background",
             Color = new Color(0.015f, 0.02f, 0.03f, 0.88f),
             Position = new Vector2(12, 12),
-            Size = new Vector2(900, 340),
+            Size = new Vector2(1100, 520),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         layer.AddChild(backdrop);
@@ -362,7 +362,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         {
             Name = "Checkpoint",
             Position = new Vector2(24, 20),
-            Size = new Vector2(875, 278),
+            Size = new Vector2(1060, 430),
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
@@ -373,7 +373,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         {
             Name = "ForceStage95Checkpoint",
             Text = "FORCE VCG00 STAGE 95 + SAVE CHECKPOINT",
-            Position = new Vector2(24, 294),
+            Position = new Vector2(24, 462),
             Size = new Vector2(420, 32),
             ProcessMode = ProcessModeEnum.Always
         };
