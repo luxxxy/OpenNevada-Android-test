@@ -112,12 +112,12 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
         {
             case InputEventScreenTouch touch when touch.Pressed:
                 _joystickHeld = true;
-                UpdateJoystick(touch.Position - _joystick.GlobalPosition);
+                UpdateJoystick(touch.Position);
                 _joystick.AcceptEvent();
                 break;
             case InputEventScreenDrag drag:
                 _joystickHeld = true;
-                UpdateJoystick(drag.Position - _joystick.GlobalPosition);
+                UpdateJoystick(drag.Position);
                 _joystick.AcceptEvent();
                 break;
             case InputEventScreenTouch touch when !touch.Pressed:
@@ -126,7 +126,7 @@ internal sealed partial class AndroidTouchControls : CanvasLayer
                 break;
             case InputEventMouseButton mouse when mouse.ButtonIndex == MouseButton.Left:
                 _joystickHeld = mouse.Pressed;
-                if (_joystickHeld) UpdateJoystick(mouse.Position - _joystick.GlobalPosition);
+                if (_joystickHeld) UpdateJoystick(mouse.Position);
                 else ReleaseJoystick();
                 _joystick.AcceptEvent();
                 break;
