@@ -456,9 +456,12 @@ internal sealed class RuntimeLiveContentSource : IDisposable
                     if (result.Any(path => Path.GetFileName(path).Equals(name, StringComparison.OrdinalIgnoreCase))) continue;
                     if (!available.Remove(name, out var path))
                     {
-                        // Archive lists can contain distribution-specific or optional BSAs
-                        // that are not shipped with every valid Fallout: New Vegas install.
-                        // Keep loading the archives that are actually present.
+                        // An explicitly selected archive configuration is authoritative and
+                        // must reject missing files. The retail default INI can contain
+                        // distribution-specific optional archives, so ignore those when
+                        // resolving the installation's built-in defaults.
+                        if (archiveIniPath is not null)
+                            throw new FileNotFoundException($"Configured archive is absent from the selected Data folder: {name}");
                         continue;
                     }
                     result.Add(path);
