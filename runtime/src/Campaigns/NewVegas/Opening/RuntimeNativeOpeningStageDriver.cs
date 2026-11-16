@@ -275,7 +275,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         // Use an independent always-processing Timer for the checkpoint/watchdog.
         // This avoids relying on the gameplay driver's _Process callback while
         // the SceneTree is paused by a modal character-creation screen.
-        var watchdog = new Timer
+        var watchdog = new Godot.Timer
         {
             Name = "OpeningDiagnosticWatchdog",
             WaitTime = 0.25,
