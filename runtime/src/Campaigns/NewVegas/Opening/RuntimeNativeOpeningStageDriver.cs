@@ -369,44 +369,6 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         _openingDiagnosticLabel.AddThemeColorOverride("font_color", Colors.White);
         _openingDiagnosticLabel.AddThemeFontSizeOverride("font_size", 18);
         layer.AddChild(_openingDiagnosticLabel);
-        var checkpoint = new Button
-        {
-            Name = "ForceStage95Checkpoint",
-            Text = "FORCE VCG00 STAGE 95 + SAVE CHECKPOINT",
-            Position = new Vector2(24, 462),
-            Size = new Vector2(420, 32),
-            ProcessMode = ProcessModeEnum.Always
-        };
-        checkpoint.Pressed += () =>
-        {
-            if (_machine is null || !_machine.QuestEditorId.Equals(NewGameQuestEditorId, StringComparison.OrdinalIgnoreCase))
-            {
-                ExecutionError = "Stage-95 checkpoint is only valid during VCG00.";
-                UpdateOpeningDiagnosticOverlay();
-                return;
-            }
-            try
-            {
-                if (_machine.Stage == 90)
-                {
-                    _machine.EnterScriptStage(NewGameQuestEditorId, 95);
-                    Synchronize();
-                }
-                else if (_machine.Stage != 95)
-                {
-                    throw new InvalidOperationException($"Checkpoint requires VCG00 stage 90 or 95; current stage is {_machine.Stage}.");
-                }
-                DiagnosticCheckpointRequested?.Invoke();
-                GD.Print("OPENNV_DIAGNOSTIC_STAGE95_CHECKPOINT_REQUESTED");
-            }
-            catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or KeyNotFoundException)
-            {
-                ExecutionError = error.Message;
-                GD.PushError($"OPENNV_DIAGNOSTIC_STAGE95_CHECKPOINT_FAILED: {error}");
-                UpdateOpeningDiagnosticOverlay();
-            }
-        };
-        layer.AddChild(checkpoint);
         GD.Print("OPENNV_OPENING_CHECKPOINT_OVERLAY_CREATED");
     }
 
