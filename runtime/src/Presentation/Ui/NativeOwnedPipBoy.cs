@@ -343,6 +343,7 @@ internal sealed partial class NativeOwnedPipBoy : Control
             // Android can emit a compatibility mouse event after a touch event.
             // Once native touch routing is active, avoid delivering both copies.
             if (_touchInputSeen) { GetViewport().SetInputAsHandled(); return; }
+            if (_touchCloseButton?.GetGlobalRect().HasPoint(mouse.Position) == true) return;
             if (_buttons.Any(target => target.Button.GetGlobalRect().HasPoint(mouse.Position))) return;
             var uv = _device!.PickScreen(mouse.Position - GlobalPosition);
             // Keep a captured map drag at its last valid point when the cursor
