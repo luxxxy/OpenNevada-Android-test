@@ -58,9 +58,9 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private Godot.Timer? _openingWatchdog;
     private double _openingDiagnosticElapsed;
     private double _stage90SkipElapsed;
-    private bool _stage90SkipAttempted;
+    private bool _stage90SkipAttempted = true;
     private bool _stage95CheckpointSaved;
-    private string _stage90SkipStatus = "not-started";
+    private string _stage90SkipStatus = "disabled-for-isolation-build";
     internal string? ExecutionError { get; private set; }
     private readonly List<object> _headTrackingCommands = [];
     internal object[] HeadTrackingCommands => _headTrackingCommands.ToArray();
