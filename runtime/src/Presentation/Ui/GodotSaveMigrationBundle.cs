@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
+using OpenNV.Runtime.Gameplay.State;
 
 namespace OpenNV.Runtime.Presentation.Ui;
 
@@ -52,7 +53,7 @@ internal static class GodotSaveMigrationBundle
             saveCount++;
         }
 
-        var slotDirectory = savePath + Gameplay.State.RuntimeSaveSlotCatalog.SlotDirectorySuffix;
+        var slotDirectory = savePath + RuntimeSaveSlotCatalog.SlotDirectorySuffix;
         if (Directory.Exists(slotDirectory))
         {
             foreach (var slot in Directory.EnumerateFiles(slotDirectory, "*.json", SearchOption.TopDirectoryOnly)
@@ -182,7 +183,7 @@ internal static class GodotSaveMigrationBundle
         foreach (var file in manifest.Files)
         {
             if (file is null || string.IsNullOrWhiteSpace(file.Path) || file.Length < 0 ||
-                file.Sha256.Length != 64 || !seen.Add(file.Path) ||
+                string.IsNullOrWhiteSpace(file.Sha256) || file.Sha256.Length != 64 || !seen.Add(file.Path) ||
                 !archiveFiles.TryGetValue(file.Path, out var entry) || entry.Length != file.Length)
                 throw new InvalidDataException("The backup manifest contains an invalid file entry.");
 
