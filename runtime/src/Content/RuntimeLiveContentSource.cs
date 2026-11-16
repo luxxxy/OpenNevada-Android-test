@@ -462,7 +462,7 @@ internal sealed class RuntimeLiveContentSource : IDisposable
                         // missing archives remain errors.
                         var normalizedArchiveName = new string(
                             name.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
-                        if (normalizedArchiveName is "falloutallfnvbsa" or "falloutallfnv1bsa")
+                        if (normalizedArchiveName is "falloutallfnvbsa" or "falloutallfnv1bsa" or "falloutaiifnvbsa")
                             continue;
                         throw new FileNotFoundException($"Configured archive is absent from the selected Data folder: {name}");
                     }
