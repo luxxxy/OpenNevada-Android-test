@@ -57,6 +57,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private double _openingDiagnosticElapsed;
     private double _raceMenuFallbackElapsed;
     private bool _raceMenuFallbackAttempted;
+    private string _raceMenuFallbackStatus = "not-started";
     internal string? ExecutionError { get; private set; }
     private readonly List<object> _headTrackingCommands = [];
     internal object[] HeadTrackingCommands => _headTrackingCommands.ToArray();
@@ -280,14 +281,17 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             if (_raceMenuFallbackElapsed >= 2.0)
             {
                 _raceMenuFallbackAttempted = true;
+                _raceMenuFallbackStatus = "triggered";
                 try
                 {
                     _machine.BeginFallbackBlocker("showracemenu");
+                    _raceMenuFallbackStatus = "blocker-created";
                     GD.PushWarning("OPENNV_NATIVE_RACESEX_FALLBACK quest=VCG00 stage=90 reason=source-script-did-not-open-menu");
                     Synchronize();
                 }
                 catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException)
                 {
+                    _raceMenuFallbackStatus = $"failed:{error.GetType().Name}";
                     ExecutionError = error.Message;
                     GD.PushError($"OPENNV_NATIVE_RACESEX_FALLBACK_FAILED: {error.Message}");
                 }
@@ -378,6 +382,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
             $"Driver: READY   Elapsed: {_openingDiagnosticElapsed:F1}s   Configured: {configured}\n" +
             $"Quest: {quest}   Stage: {stage}   Blockers: {blockers}\n" +
             $"Quest script: {script}\n" +
+            $"Race fallback: attempted={_raceMenuFallbackAttempted} elapsed={_raceMenuFallbackElapsed:F1}s state={_raceMenuFallbackStatus}\n" +
             $"Player: {_player is not null}   Cell: {_activeCell}   Movie: {_moviePlaying}   " +
             $"Race/sex UI: {_raceSexEntry is not null}   Name UI: {_nameEntry is not null}\n" +
             $"Error: {ExecutionError ?? "none"}";
@@ -517,13 +522,16 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         }
         if (_raceSexEntry is not null)
             return;
+        _raceMenuFallbackStatus = "blocker-detected";
         GD.Print($"OPENNV_CREATION_DIAG phase=blocker_detected quest={_machine.QuestEditorId} stage={_machine.Stage} blockers={string.Join(',', _machine.PendingBlockers)}");
         _raceSexEntry = new RuntimeNativeRaceSexEntry();
         AddChild(_raceSexEntry);
         _raceSexEntry.Accepted += AcceptCharacter;
         _raceSexEntry.Failed += error => ExecutionError = error.Message;
+        _raceMenuFallbackStatus = "entry-node-added";
         GD.Print("OPENNV_CREATION_DIAG phase=entry_node_added");
         _raceSexEntry.Configure(_raceSexContract, _character, _pluginStack, _imageSpacePresenter());
+        _raceMenuFallbackStatus = $"configured:{_raceSexEntry.State}";
         GD.Print($"OPENNV_CREATION_DIAG phase=configure_returned state={_raceSexEntry.State}");
         GD.Print(
             $"OPENNV_NATIVE_RACESEX_OPEN quest={_machine.QuestEditorId} stage={_machine.Stage} " +
