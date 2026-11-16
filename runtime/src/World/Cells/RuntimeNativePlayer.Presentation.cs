@@ -134,7 +134,13 @@ internal partial class RuntimeNativePlayer
         if (_firstPersonCamera is not null && _firstPerson is not null)
         {
             _firstPersonCamera.Transform = _firstPerson.SourceCamera;
-            _firstPersonView!.Size = (Vector2I)GetViewport().GetVisibleRect().Size;
+            var visibleSize = GetViewport().GetVisibleRect().Size;
+            var viewportScale = OS.GetName() == "Android" ? 0.5f : 1f;
+            var targetSize = new Vector2I(
+                Math.Max(1, (int)(visibleSize.X * viewportScale)),
+                Math.Max(1, (int)(visibleSize.Y * viewportScale)));
+            if (_firstPersonView!.Size != targetSize)
+                _firstPersonView.Size = targetSize;
         }
         PublishThirdPersonCamera();
     }
@@ -167,7 +173,7 @@ internal partial class RuntimeNativePlayer
                     OwnWorld3D = true,
                     TransparentBg = true,
                     RenderTargetUpdateMode = SubViewport.UpdateMode.Always,
-                    Size = new(1280, 720)
+                    Size = OS.GetName() == "Android" ? new Vector2I(640, 360) : new Vector2I(1280, 720)
                 };
                 AddChild(_firstPersonView);
                 _firstPersonCamera = new Camera3D
