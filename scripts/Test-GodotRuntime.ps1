@@ -25,7 +25,6 @@ $policyTargets = @(
     "README.md",
     "AGENTS.md",
     "docs",
-    ".github/workflows",
     "runtime/README.md",
     "runtime/runtime-manifest.json"
 )
