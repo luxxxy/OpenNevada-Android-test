@@ -1116,8 +1116,6 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
             input is InputEventMouseButton;
         if (isTouchEdge)
             RecordTouchDebug($"1 INPUT {input.GetType().Name} pos={mouse.Position} pressed={(input is InputEventScreenTouch st ? st.Pressed : input is InputEventMouseButton mb && mb.Pressed)}");
-        var legacyTouchEdge = input is InputEventScreenTouch ||
-            input is InputEventMouseButton;
         if (isTouchEdge)
             GD.Print(
                 "OPENNV_RACESEX_TOUCH_DIAG " +
