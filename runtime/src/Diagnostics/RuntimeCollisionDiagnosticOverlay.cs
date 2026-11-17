@@ -18,15 +18,15 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         panel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopLeft);
         panel.OffsetLeft = 12;
         panel.OffsetTop = 12;
-        panel.OffsetRight = 612;
-        panel.OffsetBottom = 310;
+        panel.OffsetRight = 452;
+        panel.OffsetBottom = 292;
         var style = new StyleBoxFlat { BgColor = new Color(0, 0, 0, .88f) };
         style.SetContentMarginAll(10);
         panel.AddThemeStyleboxOverride("panel", style);
         var column = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Pass };
         panel.AddChild(column);
         var heading = new Label { Text = "OPENNV COLLISION DIAGNOSTICS", MouseFilter = Control.MouseFilterEnum.Ignore };
-        heading.AddThemeFontSizeOverride("font_size", 18);
+        heading.AddThemeFontSizeOverride("font_size", 14);
         column.AddChild(heading);
         _report = new Label
         {
@@ -34,9 +34,12 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        _report.AddThemeFontSizeOverride("font_size", 14);
-        column.AddChild(_report);
-        _copy = new Button { Text = "COPY REPORT", CustomMinimumSize = new Vector2(0, 42) };
+        _report.AddThemeFontSizeOverride("font_size", 11);
+        var scroll = new ScrollContainer { CustomMinimumSize = new Vector2(0, 218), SizeFlagsVertical = Control.SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        column.AddChild(scroll);
+        _report.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        scroll.AddChild(_report);
+        _copy = new Button { Text = "COPY REPORT", CustomMinimumSize = new Vector2(0, 32) };
         _copy.Pressed += () => DisplayServer.ClipboardSet(_report.Text);
         column.AddChild(_copy);
     }
@@ -59,10 +62,10 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         var nodes = Descendants(GetTree().Root).ToArray();
         var cellRoots = nodes.OfType<Node3D>()
             .Where(node => node.HasMeta("opennv_land_candidate_meshes") ||
-                node.Name.ToString().StartsWith("CELL_", StringComparison.OrdinalIgnoreCase))
+                node.Name.ToString().StartsWith("CELL_", StringComparison.OrdinalIgnoreCase) || node.Name.ToString().StartsWith("NativeCell_", StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if (cellRoots.Length == 0)
-            lines.Add("CELL roots: none found yet");
+            lines.Add("CELL ROOTS: none found");
         foreach (var cell in cellRoots)
         {
             var hasLandMeta = cell.HasMeta("opennv_land_candidate_meshes");
