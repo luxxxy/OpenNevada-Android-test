@@ -97,6 +97,7 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             var from = player.GlobalPosition + Vector3.Up * 2.0f;
             var to = player.GlobalPosition - Vector3.Up * 40.0f;
             var query = PhysicsRayQueryParameters3D.Create(from, to, player.CollisionMask);
+            query.Exclude = new Godot.Collections.Array<Rid> { player.GetRid() };
             query.CollideWithAreas = false;
             query.CollideWithBodies = true;
             var hit = player.GetWorld3D().DirectSpaceState.IntersectRay(query);
@@ -110,6 +111,7 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             }
 
             var allLayersQuery = PhysicsRayQueryParameters3D.Create(from, to, uint.MaxValue);
+            allLayersQuery.Exclude = new Godot.Collections.Array<Rid> { player.GetRid() };
             allLayersQuery.CollideWithAreas = false;
             allLayersQuery.CollideWithBodies = true;
             var allLayersHit = player.GetWorld3D().DirectSpaceState.IntersectRay(allLayersQuery);
@@ -131,6 +133,18 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             .Select(group => $"{group.Key}:{group.Count()}");
         lines.Add($"StaticBody layers: {(layerSummary.Any() ? string.Join(", ", layerSummary) : "none")}");
         lines.Add($"Scene totals: staticBodies={staticBodies.Length}, collisionShapes={shapes.Length}, meshes={nodes.OfType<MeshInstance3D>().Count()}");
+        foreach (var body in staticBodies.Take(12))
+        {
+            var bodyShapes = Descendants(body).OfType<CollisionShape3D>().Count();
+            lines.Add($"BODY {body.GetPath()} layer={body.CollisionLayer} mask={body.CollisionMask} pos={Vec(body.GlobalPosition)} shapes={bodyShapes}");
+        }
+        var rigidBodies = nodes.OfType<RigidBody3D>().ToArray();
+        lines.Add($"RigidBodies={rigidBodies.Length}");
+        foreach (var body in rigidBodies.Take(8))
+            lines.Add($"RIGID {body.Name} layer={body.CollisionLayer} mask={body.CollisionMask} pos={Vec(body.GlobalPosition)}");
+        var sceneNames = GetTree().CurrentScene?.GetChildren()
+            .Select(node => node.Name.ToString()).Take(20).ToArray() ?? Array.Empty<string>();
+        lines.Add($"ROOT CHILDREN: {(sceneNames.Length == 0 ? "none" : string.Join(", ", sceneNames))}");
         return string.Join("\n", lines);
     }
 
