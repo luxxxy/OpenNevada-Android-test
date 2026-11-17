@@ -454,19 +454,35 @@ internal sealed class RuntimeLiveContentSource : IDisposable
                              StringSplitOptions.RemoveEmptyEntries))
                 {
                     if (result.Any(path => Path.GetFileName(path).Equals(name, StringComparison.OrdinalIgnoreCase))) continue;
-                    if (!available.Remove(name, out var path))
+                    if (available.Remove(name, out var path))
                     {
-                        // ArchiveInvalidation Invalidated! is an optional, third-party
-                        // BSA and is not part of every retail installation. Ignore only
-                        // that known optional entry in the retail default INI; all other
-                        // missing archives remain errors.
-                        var normalizedArchiveName = new string(
-                            name.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
-                        if (normalizedArchiveName is "falloutallfnvbsa" or "falloutallfnv1bsa" or "falloutaiifnvbsa")
-                            continue;
-                        throw new FileNotFoundException($"Configured archive is absent from the selected Data folder: {name}");
+                        result.Add(path);
+                        continue;
                     }
-                    result.Add(path);
+
+                    // Match archive filenames by their alphanumeric identity as well
+                    // as exact spelling. Some Android-delivered game folders alter
+                    // punctuation or spacing while preserving the original archive.
+                    var normalizedArchiveName = NormalizeArchiveFileName(name);
+                    var normalizedMatches = available.Keys
+                        .Where(candidate => NormalizeArchiveFileName(candidate) == normalizedArchiveName)
+                        .ToArray();
+                    if (normalizedMatches.Length == 1)
+                    {
+                        var matchedName = normalizedMatches[0];
+                        result.Add(available[matchedName]);
+                        available.Remove(matchedName);
+                        continue;
+                    }
+                    if (normalizedMatches.Length > 1)
+                        throw new InvalidDataException(
+                            $"Configured archive name is ambiguous after normalization: {name}");
+
+                    // ArchiveInvalidation Invalidated! is an optional, third-party
+                    // BSA and is not part of every retail installation.
+                    if (normalizedArchiveName is "falloutallfnvbsa" or "falloutallfnv1bsa" or "falloutaiifnvbsa")
+                        continue;
+                    throw new FileNotFoundException($"Configured archive is absent from the selected Data folder: {name}");
                 }
             }
         }
@@ -490,6 +506,9 @@ internal sealed class RuntimeLiveContentSource : IDisposable
             result.Add(update);
         return result;
     }
+
+    private static string NormalizeArchiveFileName(string name)
+        => new(name.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 
     private static string ComputeLiveIdentity(
         IReadOnlyList<FalloutPluginSource> plugins,
