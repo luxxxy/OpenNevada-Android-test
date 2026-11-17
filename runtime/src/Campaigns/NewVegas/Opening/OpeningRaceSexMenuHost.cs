@@ -163,6 +163,7 @@ internal sealed class OpeningRaceSexMenuHost
         var entry = _listEntries.SingleOrDefault(value => value.Key == key) ??
             throw new InvalidOperationException(
                 $"Owned RaceSexMenu list entry is unavailable: {key}");
+        GD.Print($"OPENNV_RACESEX_ACTION list key={key} label={entry.Label}");
         entry.Activate();
     }
 
@@ -171,7 +172,9 @@ internal sealed class OpeningRaceSexMenuHost
         var entry = _sliderEntries.SingleOrDefault(item => item.Key == key) ??
             throw new InvalidOperationException(
                 $"Owned RaceSexMenu slider entry is unavailable: {key}");
-        entry.SetValue(Mathf.Clamp(value, entry.Minimum, entry.Maximum));
+        var clamped = Mathf.Clamp(value, entry.Minimum, entry.Maximum);
+        GD.Print($"OPENNV_RACESEX_ACTION slider key={key} requested={value:R} applied={clamped:R}");
+        entry.SetValue(clamped);
     }
 
     internal void PressBack() => _back.EmitSignal(BaseButton.SignalName.Pressed);
@@ -261,7 +264,11 @@ internal sealed class OpeningRaceSexMenuHost
                         slot * _source.SharedControls.List.Rect.Size.Y,
                     _source.SharedControls.List.Rect.Size);
             if (entry.Selectable)
-                row.Pressed += entry.Activate;
+                row.Pressed += () =>
+                {
+                    GD.Print($"OPENNV_RACESEX_ACTION list-pressed key={entry.Key} label={entry.Label}");
+                    entry.Activate();
+                };
             else
             {
                 row.FocusMode = Control.FocusModeEnum.None;
@@ -372,11 +379,15 @@ internal sealed class OpeningRaceSexMenuHost
                 brightness: template.Brightness);
             left.Pressed += () =>
             {
-                entry.SetValue(Mathf.Max(entry.Minimum, entry.Value - entry.Increment));
+                var next = Mathf.Max(entry.Minimum, entry.Value - entry.Increment);
+                GD.Print($"OPENNV_RACESEX_ACTION slider-left key={entry.Key} before={entry.Value:R} after={next:R}");
+                entry.SetValue(next);
             };
             right.Pressed += () =>
             {
-                entry.SetValue(Mathf.Min(entry.Maximum, entry.Value + entry.Increment));
+                var next = Mathf.Min(entry.Maximum, entry.Value + entry.Increment);
+                GD.Print($"OPENNV_RACESEX_ACTION slider-right key={entry.Key} before={entry.Value:R} after={next:R}");
+                entry.SetValue(next);
             };
             row.AddChild(left);
             row.AddChild(right);
