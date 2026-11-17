@@ -151,6 +151,9 @@ internal sealed class NativeOwnedMenuTree
     private readonly FalloutInstallationSettings _settings;
     private readonly Func<string, string>? _stringSetting;
     private readonly XElement _globals = FalloutMenuXml.Read("menus/globals.xml").Elements().Single();
+    // The retail tile evaluator exposes a virtual source named "screen" in
+    // addition to the screen() expression. It is not a child of the menu XML.
+    private readonly XElement _screen = new("screen");
     internal NativeOwnedMenuTree(XElement root, Func<string, string>? stringSetting = null)
     {
         Root = root;
@@ -208,6 +211,7 @@ internal sealed class NativeOwnedMenuTree
             ?? throw new NotSupportedException("Owned child() reference has no unique child tile."),
         "io()" => Root,
         "globals()" => _globals,
+        "screen" => _screen,
         _ when source == (string?)Root.Attribute("name") => Root,
         _ when source.StartsWith("sibling(", StringComparison.Ordinal) => tile.Parent!.Elements().Single(value => (string?)value.Attribute("name") == source[8..^1]),
         _ when source.StartsWith("child(", StringComparison.Ordinal) => tile.Elements().Single(value => (string?)value.Attribute("name") == source[6..^1]),
@@ -276,6 +280,16 @@ internal sealed class NativeOwnedMenuTree
     }
     internal float Number(XElement tile, string trait, bool bindings = true)
     {
+        if (ReferenceEquals(tile, _screen))
+            return trait switch
+            {
+                "width" => Screen.X,
+                "height" => Screen.Y,
+                "resolutionconverter" => ResolutionConverter,
+                "cropx" => _settings.Number("Interface", Screen.X / Screen.Y > 4f / 3f ? "iSafeZoneXWide" : "iSafeZoneX"),
+                "cropy" => _settings.Number("Interface", Screen.X / Screen.Y > 4f / 3f ? "iSafeZoneYWide" : "iSafeZoneY"),
+                _ => throw new NotSupportedException($"Owned screen source trait {trait} is unbound."),
+            };
         if (bindings && _values.TryGetValue((tile, trait), out var bound)) return bound;
         if (trait is "string" or "_PCButtonText") return String(tile, trait).Length == 0 ? 0 : 1;
         if (trait is "filewidth" or "fileheight")
