@@ -21,7 +21,7 @@ project/assembly_name="OpenNV"
 
 [display]
 
-window/handheld/orientation=4
+window/handheld/orientation=6
 
 [physics]
 
