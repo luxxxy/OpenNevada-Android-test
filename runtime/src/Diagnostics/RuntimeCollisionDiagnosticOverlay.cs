@@ -72,6 +72,15 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             var candidates = hasLandMeta ? cell.GetMeta("opennv_land_candidate_meshes").AsInt32() : -1;
             var requested = hasLandMeta && cell.GetMeta("opennv_land_collision_requested").AsBool();
             var created = hasLandMeta && cell.GetMeta("opennv_land_collision_created").AsBool();
+            var cellNodes = Descendants(cell).ToArray();
+            var cellMeshes = cellNodes.OfType<MeshInstance3D>().ToArray();
+            var landMeshes = cellMeshes.Where(mesh => mesh.Name.ToString().Contains("land", StringComparison.OrdinalIgnoreCase) || mesh.GetPath().ToString().Contains("/LAND", StringComparison.OrdinalIgnoreCase)).ToArray();
+            lines.Add($"  subtree meshes={cellMeshes.Length} static={cellNodes.OfType<StaticBody3D>().Count()} rigid={cellNodes.OfType<RigidBody3D>().Count()} LAND-named={landMeshes.Length}");
+            foreach (var mesh in (landMeshes.Length > 0 ? landMeshes : cellMeshes).Take(4))
+            {
+                var bounds = mesh.GetAabb();
+                lines.Add($"  MESH {mesh.Name} center={Vec(mesh.ToGlobal(bounds.Position + bounds.Size * 0.5f))} size={Vec(bounds.Size)}");
+            }
             var landBody = Descendants(cell).OfType<StaticBody3D>()
                 .FirstOrDefault(body => body.Name == "LAND_ACTIVE_SET_COLLISION");
             var shape = landBody is null ? null : Descendants(landBody).OfType<CollisionShape3D>().FirstOrDefault();
@@ -117,6 +126,12 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             allLayersQuery.Exclude = new Godot.Collections.Array<Rid> { player.GetRid() };
             allLayersQuery.CollideWithAreas = false;
             allLayersQuery.CollideWithBodies = true;
+            var longQuery = PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 1500.0f, player.GlobalPosition - Vector3.Up * 1500.0f, uint.MaxValue);
+            longQuery.Exclude = new Godot.Collections.Array<Rid> { player.GetRid() };
+            longQuery.CollideWithAreas = false;
+            longQuery.CollideWithBodies = true;
+            var longHit = player.GetWorld3D().DirectSpaceState.IntersectRay(longQuery);
+            lines.Add(longHit.Count == 0 ? "LONG VERTICAL RAY: NO HIT (3000m)" : "LONG VERTICAL RAY: HIT at " + Vec(longHit["position"].AsVector3()));
             var allLayersHit = player.GetWorld3D().DirectSpaceState.IntersectRay(allLayersQuery);
             if (allLayersHit.Count == 0)
                 lines.Add("  DOWN RAY (all layers): NO HIT (42m)");
