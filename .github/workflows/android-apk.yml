@@ -99,13 +99,20 @@ jobs:
           from pathlib import Path
 
           candidates = list(Path("runtime/.godot/mono").rglob("OpenNV.dll"))
-          needle = b"falloutallfnvbsa"
-          needle_utf16 = needle.decode("ascii").encode("utf-16le")
-          matching = [p for p in candidates if needle in p.read_bytes() or needle_utf16 in p.read_bytes()]
+          needles = (b"falloutallfnvbsa", b"falloutaiifnvbsa")
+          matching = []
+          for path in candidates:
+              data = path.read_bytes()
+              if all(needle in data or needle.decode("ascii").encode("utf-16le") in data for needle in needles):
+                  matching.append(path)
           if not matching:
-              raise SystemExit("ERROR: normalized archive-skip code is missing from every compiled OpenNV.dll")
+              raise SystemExit("ERROR: compiled OpenNV.dll is missing a required Fallout archive alias")
           for path in matching:
-              print(f"Verified compiled assembly: {path}")
+              print(f"Verified compiled archive aliases: {path}")
+          project = Path("runtime/project.godot").read_text(encoding="utf-8")
+          if "window/handheld/orientation=6" not in project:
+              raise SystemExit("ERROR: Android sensor-landscape orientation is not configured")
+          print("Verified Android sensor-landscape orientation")
           PY
 
       - name: Export and verify ARM64 debug APK
