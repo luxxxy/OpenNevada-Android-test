@@ -712,11 +712,18 @@ internal static class CellContentLoader
                 loadedReferences++;
             }
 
+            root.SetMeta("opennv_land_candidate_meshes", landscapeCollisionMeshes.Count);
+            root.SetMeta("opennv_land_collision_requested", buildCollision);
+            root.SetMeta("opennv_land_collision_created", false);
             if (buildCollision && landscapeCollisionMeshes.Count > 0)
             {
                 BuildLandscapeCollision(root, landscapeCollisionMeshes, renderLayer);
+                root.SetMeta("opennv_land_collision_created", true);
                 collisionMeshes++;
             }
+            GD.Print($"OPENNV_LAND_COLLISION cell={formId} candidates={landscapeCollisionMeshes.Count} " +
+                $"requested={buildCollision} created={buildCollision && landscapeCollisionMeshes.Count > 0} " +
+                $"renderLayer={renderLayer}");
 
             if (poolManifest is not null)
             {
@@ -1667,6 +1674,9 @@ internal static class CellContentLoader
             Shape = shape,
         });
         root.AddChild(body);
+        GD.Print($"OPENNV_LAND_COLLISION_BUILT meshes={landscapeMeshes.Count} triangles={triangleCount} " +
+            $"vertices={vertices.Count} bodyPosition={body.GlobalPosition} bodyScale={body.GlobalBasis.Scale} " +
+            $"layer={body.CollisionLayer} shape={shape.GetType().Name}");
     }
 
     private static void CreateDoubleSidedTrimeshCollision(
