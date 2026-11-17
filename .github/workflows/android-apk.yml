@@ -110,8 +110,8 @@ jobs:
           for path in matching:
               print(f"Verified compiled archive aliases: {path}")
           project = Path("runtime/project.godot").read_text(encoding="utf-8")
-          if "window/handheld/orientation=4" not in project:
-              raise SystemExit("ERROR: Android sensor-landscape orientation is not configured")
+          if "window/handheld/orientation=6" not in project:
+              raise SystemExit("ERROR: Android sensor-landscape orientation value 6 is not configured")
           print("Verified Android sensor-landscape orientation")
           PY
 
