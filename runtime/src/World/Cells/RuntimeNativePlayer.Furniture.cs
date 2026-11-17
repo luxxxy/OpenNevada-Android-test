@@ -49,7 +49,7 @@ internal partial class RuntimeNativePlayer
     };
 
     private sealed record PlayerFurnitureClip(FalloutNifControllerSequence Sequence, RuntimeNativeNifAnimation Animation,
-        string Identity, Vector3 Start, Vector3 End, FalloutNifAnimatedNodePath? Camera);
+        string Identity, Vector3 Start, Vector3 End, FalloutNifAnimationSampler? RootSampler, FalloutNifAnimatedNodePath? Camera);
 
     internal void ActivateFurniture(FalloutPluginStack records, FalloutQuestState quests,
         FalloutPlacedReference reference, Transform3D placement, FalloutFormKey cell)
@@ -95,12 +95,13 @@ internal partial class RuntimeNativePlayer
                     sequence.CycleType != (state == 1 ? 0 : 2)) throw new NotSupportedException("Player furniture source clock is unsupported.");
                 var root = sequence.ControlledBlocks.SingleOrDefault(link => link.NodeName == sequence.TargetName && link.ControllerType == "NiTransformController");
                 Vector3 start = default, end = default;
+                FalloutNifAnimationSampler? rootSampler = null;
                 Action<FalloutNifAnimationSample>? accumulation = null;
                 if (state != 1)
                 {
                     if (root is null) throw new NotSupportedException("Player furniture transition has no accumulation channel.");
-                    var sampler = new FalloutNifAnimationSampler(nif, root.Interpolator);
-                    start = Translation(sampler.Sample(sequence.StartTime)); end = Translation(sampler.Sample(sequence.StopTime));
+                    rootSampler = new FalloutNifAnimationSampler(nif, root.Interpolator);
+                    start = Translation(rootSampler.Sample(sequence.StartTime)); end = Translation(rootSampler.Sample(sequence.StopTime));
                     accumulation = sample => GlobalTransform = _furnitureMotion!.Sample(Translation(sample));
                 }
                 else if (root is not null) throw new NotSupportedException("Player furniture loop accumulation is unbound.");
@@ -113,7 +114,7 @@ internal partial class RuntimeNativePlayer
                     if (cameraIdle.Form != idle.Form)
                         camera = new(Read("meshes/characters/_1stperson/skeleton.nif"), Read(cameraIdle.AnimationPath), "Camera1st");
                 }
-                _furnitureClips.Add(state, new(sequence, animation, idle.AnimationPath, start, end, camera));
+                _furnitureClips.Add(state, new(sequence, animation, idle.AnimationPath, start, end, rootSampler, camera));
             }
             _ = body.Skeleton.BoneIndex("Bip01 Head");
             var offset = seat.Marker.Offset;
@@ -162,15 +163,25 @@ internal partial class RuntimeNativePlayer
         _furnitureMotion = phase == 2 ? NativeFurnitureRootMotion.Enter(_occupied, _furnitureSeat!.HeadingDelta, _furnitureClip.End) :
             phase == 4 ? NativeFurnitureRootMotion.Exit(_occupied, _furnitureSeat!.HeadingDelta, _furnitureClip.Start) : null;
         if (phase == 3) GlobalTransform = _occupied;
-        _furnitureBody!.Skeleton.Node.SetBonePose(_furnitureBody.Skeleton.BoneIndex(_furnitureClip.Sequence.TargetName), Transform3D.Identity);
-        _furnitureClip.Animation.ApplySourceTime(_furnitureClip.Sequence.StartTime);
-        _furnitureBody.Visible = true;
+        if (phase == 4)
+        {
+            // Avoid evaluating the temporary player skeleton's stand-up KF on
+            // Android. The authored root channel is sampled directly below.
+            _furnitureBody!.Visible = false;
+            GD.Print($"OPENNV_NATIVE_PLAYER_FURNITURE_EXIT_ROOT_ONLY reference={_furnitureReference} source={_furnitureClip.Identity}");
+        }
+        else
+        {
+            _furnitureBody!.Skeleton.Node.SetBonePose(_furnitureBody.Skeleton.BoneIndex(_furnitureClip.Sequence.TargetName), Transform3D.Identity);
+            _furnitureClip.Animation.ApplySourceTime(_furnitureClip.Sequence.StartTime);
+            _furnitureBody.Visible = true;
+        }
         // The head is still a real player part, culled from its own first-person camera.
         foreach (var part in _furnitureBody.Parts.Where(part => part.Root.GetMeta("opennv_source_part").AsString() is
             "head" or "hair" or "ears" or "mouth" or "teeth-lower" or "teeth-upper" or "tongue" or "eye-left" or "eye-right"))
             part.Root.Visible = false;
         Velocity = Vector3.Zero;
-        PublishFurnitureCamera();
+        if (phase != 4) PublishFurnitureCamera();
     }
 
     private void AdvanceFurniture(double delta)
@@ -218,8 +229,17 @@ internal partial class RuntimeNativePlayer
                 var consumed = Math.Min(delta, Math.Max(0, duration - _furnitureSeconds));
                 _furnitureSeconds += consumed; delta -= consumed;
                 _furniturePhaseSeconds += consumed;
-                clip.Animation.ApplySourceTime(MathF.Min(clip.Sequence.StopTime, clip.Sequence.StartTime + (float)(_furnitureSeconds * clip.Sequence.Frequency)));
-                PublishFurnitureCamera();
+                var sourceTime = MathF.Min(clip.Sequence.StopTime, clip.Sequence.StartTime + (float)(_furnitureSeconds * clip.Sequence.Frequency));
+                if (_furniturePhase == 4)
+                {
+                    var sampler = clip.RootSampler ?? throw new InvalidOperationException("Furniture exit has no authored root-motion sampler.");
+                    GlobalTransform = _furnitureMotion!.Sample(Translation(sampler.Sample(sourceTime)));
+                }
+                else
+                {
+                    clip.Animation.ApplySourceTime(sourceTime);
+                    PublishFurnitureCamera();
+                }
                 if (_furnitureSeconds < duration) return;
                 if (_furniturePhase == 4) { ReleaseFurniture(); return; }
                 if (_furniturePhase == 2) StartFurniturePhase(3);
