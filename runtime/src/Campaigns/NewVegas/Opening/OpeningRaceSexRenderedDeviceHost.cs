@@ -1019,8 +1019,19 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
         };
         if (mouse is null)
             return;
+        var isTouchEdge = input is InputEventScreenTouch ||
+            input is InputEventMouseButton;
+        if (isTouchEdge)
+            GD.Print(
+                "OPENNV_RACESEX_TOUCH_DIAG " +
+                $"event={input.GetType().Name} hostPos={mouse.Position} " +
+                $"hostGlobalRect={_host.GetGlobalRect()} canvas={_canvasSize}");
         if (!TryMapScreenPointer(mouse.Position, out var screenPosition))
         {
+            if (isTouchEdge)
+                GD.Print(
+                    "OPENNV_RACESEX_TOUCH_MAP miss " +
+                    $"hostPos={mouse.Position} wasInside={_screenPointerInside}");
             if (_screenPointerInside && mouse is InputEventMouseButton { Pressed: false })
                 PushScreenMouse(mouse, _lastScreenPointerPosition);
             if (_screenPointerInside)
@@ -1028,6 +1039,11 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
             _screenPointerInside = false;
             return;
         }
+        if (isTouchEdge)
+            GD.Print(
+                "OPENNV_RACESEX_TOUCH_MAP hit " +
+                $"hostPos={mouse.Position} screenPos={screenPosition} " +
+                $"viewport={ScreenViewport.Size}");
         if (!_screenPointerInside)
             ScreenViewport.NotifyMouseEntered();
         _screenPointerInside = true;
