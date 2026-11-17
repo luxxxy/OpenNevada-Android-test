@@ -76,11 +76,15 @@ internal sealed class OpeningRaceSexMenuHost
             backgroundTexture,
             Layout(source.Background.Tile, source.Background.Rect));
         root.AddChild(backgroundTexture);
+        // Child controls below use the source menu's canvas-space tile
+        // coordinates. Keep this container at the canvas origin; offsetting it
+        // to the background tile applies the panel position a second time and
+        // can move slider rows outside the visible menu.
         _content = new Control
         {
             Name = "OwnedRaceSexActiveList",
-            Position = source.Background.Rect.Position,
-            Size = source.Background.Rect.Size,
+            Position = Vector2.Zero,
+            Size = root.Size,
             MouseFilter = Control.MouseFilterEnum.Pass,
         };
         root.AddChild(_content);
