@@ -9,6 +9,9 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
     private Label _report = null!;
     private Button _copy = null!;
     private Button _shadows = null!;
+    private readonly Queue<string> _inputEvents = new();
+    private string _lastInput = "none";
+    private long _lastFramesDrawn;
     private double _elapsed;
 
     public override void _Ready()
@@ -21,7 +24,7 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         panel.OffsetLeft = 12;
         panel.OffsetTop = 12;
         panel.OffsetRight = 452;
-        panel.OffsetBottom = 336;
+        panel.OffsetBottom = 438;
         var style = new StyleBoxFlat { BgColor = new Color(0, 0, 0, .88f) };
         style.SetContentMarginAll(10);
         panel.AddThemeStyleboxOverride("panel", style);
@@ -37,7 +40,7 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         _report.AddThemeFontSizeOverride("font_size", 11);
-        var scroll = new ScrollContainer { CustomMinimumSize = new Vector2(0, 218), SizeFlagsVertical = Control.SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        var scroll = new ScrollContainer { CustomMinimumSize = new Vector2(0, 304), SizeFlagsVertical = Control.SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         column.AddChild(scroll);
         _report.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         scroll.AddChild(_report);
@@ -47,6 +50,25 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         _copy = new Button { Text = "COPY REPORT", CustomMinimumSize = new Vector2(0, 32) };
         _copy.Pressed += () => DisplayServer.ClipboardSet(_report.Text);
         column.AddChild(_copy);
+        var clear = new Button { Text = "CLEAR INPUT HISTORY", CustomMinimumSize = new Vector2(0, 32) };
+        clear.Pressed += () => { _inputEvents.Clear(); _lastInput = "cleared"; };
+        column.AddChild(clear);
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        if (@event is InputEventScreenTouch touch)
+            _lastInput = $"SCREEN_TOUCH index={touch.Index} pressed={touch.Pressed} pos={touch.Position}";
+        else if (@event is InputEventScreenDrag drag)
+            _lastInput = $"SCREEN_DRAG index={drag.Index} pos={drag.Position} relative={drag.Relative}";
+        else if (@event is InputEventMouseButton mouse)
+            _lastInput = $"MOUSE_BUTTON button={mouse.ButtonIndex} pressed={mouse.Pressed} pos={mouse.Position}";
+        else if (@event is InputEventMouseMotion motion)
+            _lastInput = $"MOUSE_MOTION pos={motion.Position} relative={motion.Relative}";
+        else
+            _lastInput = @event.GetType().Name;
+        _inputEvents.Enqueue($"{Time.GetTicksMsec()}ms {_lastInput}");
+        while (_inputEvents.Count > 24) _inputEvents.Dequeue();
     }
 
     public override void _Process(double delta)
@@ -60,8 +82,15 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
 
     private string BuildReport()
     {
+        var framesDrawn = Engine.GetFramesDrawn();
+        var frameDelta = _lastFramesDrawn == 0 ? 0 : framesDrawn - _lastFramesDrawn;
+        _lastFramesDrawn = framesDrawn;
+        var viewport = GetViewport();
         var lines = new List<string>
         {
+            $"DEVICE: OS={OS.GetName()} model={OS.GetModelName()} screen={DisplayServer.WindowGetSize()} viewport={viewport.GetVisibleRect().Size}",
+            $"PERFORMANCE: FPS={Engine.GetFramesPerSecond()} frameDelta={frameDelta} frames/0.5s processDelta={_elapsed:F3}s timeScale={Engine.TimeScale:F2}",
+            $"INPUT: last={_lastInput} eventsBuffered={_inputEvents.Count}",
             $"Physics: {ProjectSettings.GetSetting("physics/3d/physics_engine", "unknown").AsString()}",
             $"Frames: {Engine.GetFramesPerSecond()} FPS",
             $"Sun shadows: {(RuntimeSunShadows.Cascades == 0 ? "OFF" : $"ON ({RuntimeSunShadows.Cascades} cascades)")}"
@@ -155,7 +184,9 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             }
         }
 
-        var renderMeshes = nodes.OfType<MeshInstance3D>().Where(mesh => mesh.Visible && mesh.Mesh is not null).ToArray();
+        var allMeshes = nodes.OfType<MeshInstance3D>().Where(mesh => mesh.Mesh is not null).ToArray();
+        var renderMeshes = allMeshes.Where(mesh => mesh.IsVisibleInTree()).ToArray();
+        lines.Add($"RENDER DETAIL: meshes={allMeshes.Length}, visibleInTree={renderMeshes.Length}, hidden={allMeshes.Length-renderMeshes.Length}, cameras={nodes.OfType<Camera3D>().Count()}, directionalLights={nodes.OfType<DirectionalLight3D>().Count()}, omniLights={nodes.OfType<OmniLight3D>().Count()}, spotLights={nodes.OfType<SpotLight3D>().Count()}, worlds={nodes.OfType<WorldEnvironment>().Count()}");
         var activeMaterials = renderMeshes.Select(mesh => mesh.GetActiveMaterial(0)).Where(material => material is not null).ToArray();
         lines.Add($"RENDER: visibleMeshes={renderMeshes.Length}, materials={activeMaterials.Length}, shader={activeMaterials.OfType<ShaderMaterial>().Count()}, standard={activeMaterials.OfType<StandardMaterial3D>().Count()}, other={activeMaterials.Count(material => material is not ShaderMaterial && material is not StandardMaterial3D)}");
         var renderPlayer = nodes.OfType<CharacterBody3D>().FirstOrDefault();
@@ -164,12 +195,18 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             : renderMeshes.OrderBy(mesh => mesh.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition)).Take(10);
         foreach (var mesh in materialSamples)
         {
+            var surfaceCount = mesh.Mesh?.GetSurfaceCount() ?? 0;
             var material = mesh.GetActiveMaterial(0);
             var materialName = material is null ? "NONE" : $"{material.GetType().Name}:{material.ResourceName}";
             var meta = material is not null && material.HasMeta("opennv_nif_material_fallback")
                 ? $" fallback={material.GetMeta("opennv_nif_material_fallback").AsString()}"
                 : string.Empty;
-            lines.Add($"  DRAW {mesh.Name}: {materialName}{meta}");
+            lines.Add($"  DRAW {mesh.Name}: visible={mesh.IsVisibleInTree()} shadows={mesh.CastShadow} surfaces={surfaceCount} material0={materialName}{meta}");
+            for (var surface = 1; surface < Math.Min(surfaceCount, 4); surface++)
+            {
+                var surfaceMaterial = mesh.GetActiveMaterial(surface);
+                lines.Add($"    SURFACE {surface}: {(surfaceMaterial is null ? "NONE" : surfaceMaterial.GetType().Name + ":" + surfaceMaterial.ResourceName)}");
+            }
         }
         var staticBodies = nodes.OfType<StaticBody3D>().ToArray();
         var shapes = nodes.OfType<CollisionShape3D>().ToArray();
@@ -204,6 +241,8 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         var sceneNames = GetTree().CurrentScene?.GetChildren()
             .Select(node => node.Name.ToString()).Take(20).ToArray() ?? Array.Empty<string>();
         lines.Add($"ROOT CHILDREN: {(sceneNames.Length == 0 ? "none" : string.Join(", ", sceneNames))}");
+        lines.Add("INPUT HISTORY (newest last):");
+        foreach (var entry in _inputEvents) lines.Add("  " + entry);
         return string.Join("\n", lines);
     }
 
