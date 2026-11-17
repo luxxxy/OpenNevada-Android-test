@@ -1,4 +1,5 @@
 using Godot;
+using OpenNV.Runtime.Presentation.Rendering;
 
 namespace OpenNV.Runtime.Diagnostics;
 
@@ -7,6 +8,7 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
 {
     private Label _report = null!;
     private Button _copy = null!;
+    private Button _shadows = null!;
     private double _elapsed;
 
     public override void _Ready()
@@ -39,6 +41,9 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         column.AddChild(scroll);
         _report.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         scroll.AddChild(_report);
+        _shadows = new Button { Text = "SUN SHADOWS: ON (TAP TO DISABLE)", CustomMinimumSize = new Vector2(0, 32) };
+        _shadows.Pressed += () => RuntimeSunShadows.Set(RuntimeSunShadows.Cascades == 0 ? 4 : 0);
+        column.AddChild(_shadows);
         _copy = new Button { Text = "COPY REPORT", CustomMinimumSize = new Vector2(0, 32) };
         _copy.Pressed += () => DisplayServer.ClipboardSet(_report.Text);
         column.AddChild(_copy);
@@ -50,6 +55,7 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         if (_elapsed < .5) return;
         _elapsed = 0;
         _report.Text = BuildReport();
+        _shadows.Text = RuntimeSunShadows.Cascades == 0 ? "SUN SHADOWS: OFF (TAP TO RESTORE)" : $"SUN SHADOWS: ON ({RuntimeSunShadows.Cascades} CASCADES; TAP TO DISABLE)";
     }
 
     private string BuildReport()
@@ -57,7 +63,8 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         var lines = new List<string>
         {
             $"Physics: {ProjectSettings.GetSetting("physics/3d/physics_engine", "unknown").AsString()}",
-            $"Frames: {Engine.GetFramesPerSecond()} FPS"
+            $"Frames: {Engine.GetFramesPerSecond()} FPS",
+            $"Sun shadows: {(RuntimeSunShadows.Cascades == 0 ? "OFF" : $"ON ({RuntimeSunShadows.Cascades} cascades)")}"
         };
         var nodes = Descendants(GetTree().Root).ToArray();
         var cellRoots = nodes.OfType<Node3D>()
@@ -148,6 +155,21 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             }
         }
 
+        var renderMeshes = nodes.OfType<MeshInstance3D>().Where(mesh => mesh.Visible && mesh.Mesh is not null).ToArray();
+        var activeMaterials = renderMeshes.Select(mesh => mesh.GetActiveMaterial(0)).Where(material => material is not null).ToArray();
+        lines.Add($"RENDER: visibleMeshes={renderMeshes.Length}, materials={activeMaterials.Length}, shader={activeMaterials.OfType<ShaderMaterial>().Count()}, standard={activeMaterials.OfType<StandardMaterial3D>().Count()}, other={activeMaterials.Count(material => material is not ShaderMaterial && material is not StandardMaterial3D)}");
+        var materialSamples = renderMeshes
+            .OrderBy(mesh => diagnosticDistance(mesh, nodes))
+            .Take(10);
+        foreach (var mesh in materialSamples)
+        {
+            var material = mesh.GetActiveMaterial(0);
+            var materialName = material is null ? "NONE" : $"{material.GetType().Name}:{material.ResourceName}";
+            var meta = material is not null && material.HasMeta("opennv_nif_material_fallback")
+                ? $" fallback={material.GetMeta("opennv_nif_material_fallback").AsString()}"
+                : string.Empty;
+            lines.Add($"  DRAW {mesh.Name}: {materialName}{meta}");
+        }
         var staticBodies = nodes.OfType<StaticBody3D>().ToArray();
         var shapes = nodes.OfType<CollisionShape3D>().ToArray();
         var layerSummary = staticBodies
