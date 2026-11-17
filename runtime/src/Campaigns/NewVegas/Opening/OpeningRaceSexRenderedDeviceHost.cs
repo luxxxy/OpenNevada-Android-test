@@ -38,6 +38,7 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
     private readonly Queue<string> _touchDebugEvents = new();
     private TextEdit? _touchDebugFeed;
     private PanelContainer? _touchDebugPanel;
+    private CanvasLayer? _touchDebugLayer;
     private int _touchDebugSequence;
 
     internal Control ScreenRoot { get; }
@@ -125,11 +126,22 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
 
     private void BuildTouchDebugPanel()
     {
+        // Keep diagnostics outside the rendered Reflectron texture. A Control added
+        // directly to _host can be covered/clipped by the device presentation; a
+        // high CanvasLayer is composited over the complete game viewport instead.
+        var overlay = new CanvasLayer
+        {
+            Name = "RaceSexTouchDebugOverlay",
+            Layer = 100,
+        };
+        _host.AddChild(overlay);
+        _touchDebugLayer = overlay;
+
         var toggle = new Button
         {
             Name = "RaceSexTouchDebugToggle",
             Text = "TOUCH DEBUG",
-            Position = new Vector2(12.0f, 12.0f),
+            Position = new Vector2(Mathf.Max(12.0f, _canvasSize.X - 204.0f), 12.0f),
             Size = new Vector2(176.0f, 48.0f),
             ZIndex = 120,
             MouseFilter = Control.MouseFilterEnum.Stop,
@@ -140,7 +152,7 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
             _touchDebugPanel.Visible = !_touchDebugPanel.Visible;
             RecordTouchDebug($"panel {(_touchDebugPanel.Visible ? "opened" : "closed")}");
         };
-        _host.AddChild(toggle);
+        overlay.AddChild(toggle);
 
         var panel = new PanelContainer
         {
@@ -189,7 +201,7 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
         var close = new Button { Text = "CLOSE", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         close.Pressed += () => panel.Visible = false;
         actions.AddChild(close);
-        _host.AddChild(panel);
+        overlay.AddChild(panel);
         _touchDebugPanel = panel;
         RecordTouchDebug($"debug panel ready canvas={_canvasSize}");
     }
