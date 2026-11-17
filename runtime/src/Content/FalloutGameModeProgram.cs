@@ -97,6 +97,10 @@ internal sealed partial class FalloutGameModeProgram
 {
     internal const int ParserVersion = 5;
     private readonly IReadOnlyList<string[]> _lines;
+    private string? _programSha256;
+    internal string ProgramSha256 => _programSha256 ??= Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(_lines)))
+        .ToLowerInvariant();
     private readonly Dictionary<int, int> _loopEnds = [];
     private FalloutGameModeProgram(IReadOnlyList<string[]> lines)
     {
