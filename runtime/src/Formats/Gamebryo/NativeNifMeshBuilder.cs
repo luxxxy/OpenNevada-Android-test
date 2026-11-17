@@ -1519,10 +1519,10 @@ internal static partial class RuntimeNativeNifMeshBuilder
                 Transform = ConvertTransform(source.Transform),
                 Visible = (source.Flags & HiddenFlag) == 0,
                 Mesh = mesh,
-                // A retained export shape without a shader has no runtime
-                // draw pass. Keep its source geometry and identity; Godot's
-                // default material must not turn it into a visible solid.
-                Layers = material.HasMeta("opennv_nif_no_render_shader") ? 0u : 1u,
+                // Shaderless material-only NIF surfaces still carry authored
+                // vertex colours/material tint. BuildVertexMaterialOnly supplies
+                // a deliberate unlit fallback, so keep the surface in the draw pass.
+                Layers = 1u,
             };
             result.SetMeta("opennv_nif_geometry_block", source.Block.Index);
             if (morph is not null) result.SetMeta("opennv_landscape_morph_targets", morph.Heights.Length);
@@ -2145,13 +2145,18 @@ internal static partial class RuntimeNativeNifMeshBuilder
                     $"NIF geometry {geometry.Block.Index} lacks complete source vertex material inputs.");
             var result = new StandardMaterial3D
             {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                CullMode = BaseMaterial3D.CullModeEnum.Disabled,
                 VertexColorUseAsAlbedo = mesh.Colors.Length != 0,
                 AlbedoColor = new Color(1.0f, 1.0f, 1.0f, material.Alpha),
+                Transparency = material.Alpha < 1.0f
+                    ? BaseMaterial3D.TransparencyEnum.Alpha
+                    : BaseMaterial3D.TransparencyEnum.Disabled,
                 Metallic = 0.0f,
                 Roughness = GlossToRoughness(material.Glossiness),
                 ResourceName = $"NIF vertex material {material.Block.Index}",
             };
-            result.SetMeta("opennv_nif_no_render_shader", true);
+            result.SetMeta("opennv_nif_material_fallback", "unlit-vertex-colour");
             return result;
         }
 
