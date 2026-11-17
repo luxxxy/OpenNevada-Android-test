@@ -93,7 +93,7 @@ $probes = @(
 )
 foreach ($probe in $probes) {
     $project = Join-Path $repository "contract-tests\$probe\$probe.csproj"
-    & dotnet run --project $project --configuration Release -p:TargetFramework=net10.0
+    & dotnet run --project $project --configuration Release
     if ($LASTEXITCODE -ne 0) { throw "$probe failed." }
 }
 
