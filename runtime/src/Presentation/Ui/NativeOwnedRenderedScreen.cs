@@ -162,7 +162,7 @@ internal sealed partial class NativeOwnedRenderedScreen : Node
                 GlobalPosition = touch.Position,
                 ButtonIndex = MouseButton.Left,
                 Pressed = touch.Pressed,
-                ButtonMask = touch.Pressed ? MouseButtonMask.Left : MouseButtonMask.None,
+                ButtonMask = touch.Pressed ? MouseButtonMask.Left : (MouseButtonMask)0,
                 Device = touch.Device,
                 DoubleClick = false,
             };
