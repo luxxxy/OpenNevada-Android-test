@@ -150,13 +150,13 @@ internal sealed partial class NativeOwnedRenderedScreen : Node
 
         if (input is InputEventMouse mouse)
         {
-            if (mouse is InputEventMouseMotion && mouse.ButtonMask == MouseButtonMask.None) return;
+            if (mouse is InputEventMouseMotion && mouse.ButtonMask == (MouseButtonMask)0) return;
             DispatchPointer(mouse.Position, mouse);
             return;
         }
         if (input is InputEventScreenTouch touch)
         {
-            var mouse = new InputEventMouseButton
+            var touchMouse = new InputEventMouseButton
             {
                 Position = touch.Position,
                 GlobalPosition = touch.Position,
@@ -166,12 +166,12 @@ internal sealed partial class NativeOwnedRenderedScreen : Node
                 Device = touch.Device,
                 DoubleClick = false,
             };
-            DispatchPointer(touch.Position, mouse);
+            DispatchPointer(touch.Position, touchMouse);
             return;
         }
         if (input is InputEventScreenDrag drag)
         {
-            var mouse = new InputEventMouseMotion
+            var dragMouse = new InputEventMouseMotion
             {
                 Position = drag.Position,
                 GlobalPosition = drag.Position,
@@ -179,7 +179,7 @@ internal sealed partial class NativeOwnedRenderedScreen : Node
                 ButtonMask = MouseButtonMask.Left,
                 Device = drag.Device,
             };
-            DispatchPointer(drag.Position, mouse);
+            DispatchPointer(drag.Position, dragMouse);
         }
     }
 
