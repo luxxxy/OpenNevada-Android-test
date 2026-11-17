@@ -239,7 +239,19 @@ internal sealed partial class NativeOwnedRaceSexMenu : Control
         });
     }
     private void Try(Action action) { try { action(); } catch (Exception error) { Fail(error); } }
-    private void Fail(Exception error) { _faulted = true; foreach (var target in _targets) target.Button.Disabled = true; _failed(error); }
+    private void Fail(Exception error)
+    {
+        _faulted = true;
+        foreach (var target in _targets) target.Button.Disabled = true;
+        // Surface the actual tile-render/layout exception in the on-device
+        // diagnostic feed; otherwise the screen silently becomes blank.
+        TouchDiagnostic?.Invoke(
+            $"MENU_RENDER_FAIL type={error.GetType().FullName} message={error.Message} " +
+            $"page={_page} rows={_rows.Count} targets={_targets.Count}");
+        GD.PushError($"OPENNV_RACESEX_MENU_RENDER_FAIL page={_page} rows={_rows.Count} " +
+            $"targets={_targets.Count}: {error}");
+        _failed(error);
+    }
     public override void _Draw()
     {
         if (_faulted) return;
