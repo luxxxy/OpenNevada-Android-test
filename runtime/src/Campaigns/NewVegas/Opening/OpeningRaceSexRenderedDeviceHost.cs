@@ -991,12 +991,38 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
 
     private void ForwardScreenInput(InputEvent input)
     {
-        if (input is not InputEventMouse mouse)
+        // Android sends touchscreen events, not desktop mouse events. Convert a
+        // single-finger tap/drag to the mouse events consumed by the projected
+        // RaceSex screen viewport so its ordinary Godot Buttons remain usable.
+        InputEventMouse? mouse = input switch
+        {
+            InputEventMouse existing => existing,
+            InputEventScreenTouch touch => new InputEventMouseButton
+            {
+                Position = touch.Position,
+                GlobalPosition = touch.Position,
+                ButtonIndex = MouseButton.Left,
+                ButtonMask = touch.Pressed ? MouseButtonMask.Left : MouseButtonMask.None,
+                Pressed = touch.Pressed,
+                Device = touch.Device,
+            },
+            InputEventScreenDrag drag => new InputEventMouseMotion
+            {
+                Position = drag.Position,
+                GlobalPosition = drag.Position,
+                Relative = drag.Relative,
+                Velocity = drag.Velocity,
+                ButtonMask = MouseButtonMask.Left,
+                Device = drag.Device,
+            },
+            _ => null,
+        };
+        if (mouse is null)
             return;
         if (!TryMapScreenPointer(mouse.Position, out var screenPosition))
         {
-            if (_screenPointerInside && input is InputEventMouseButton { Pressed: false })
-                PushScreenMouse(input, _lastScreenPointerPosition);
+            if (_screenPointerInside && mouse is InputEventMouseButton { Pressed: false })
+                PushScreenMouse(mouse, _lastScreenPointerPosition);
             if (_screenPointerInside)
                 ScreenViewport.NotifyMouseExited();
             _screenPointerInside = false;
@@ -1006,7 +1032,7 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
             ScreenViewport.NotifyMouseEntered();
         _screenPointerInside = true;
         _lastScreenPointerPosition = screenPosition;
-        PushScreenMouse(input, screenPosition);
+        PushScreenMouse(mouse, screenPosition);
     }
 
     private void PushScreenMouse(InputEvent input, Vector2 screenPosition)
