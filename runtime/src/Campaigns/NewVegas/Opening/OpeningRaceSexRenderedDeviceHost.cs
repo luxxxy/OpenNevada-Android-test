@@ -1002,7 +1002,7 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
                 Position = touch.Position,
                 GlobalPosition = touch.Position,
                 ButtonIndex = MouseButton.Left,
-                ButtonMask = touch.Pressed ? MouseButtonMask.Left : MouseButtonMask.None,
+                ButtonMask = touch.Pressed ? MouseButtonMask.Left : (MouseButtonMask)0,
                 Pressed = touch.Pressed,
                 Device = touch.Device,
             },
