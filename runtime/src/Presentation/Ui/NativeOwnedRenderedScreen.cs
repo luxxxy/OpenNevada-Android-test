@@ -55,6 +55,7 @@ internal sealed partial class NativeOwnedRenderedScreen : Node
         AddChild(ContentView);
         Menu = new(records, failed);
         Menu.PageChanged += page => device.SelectSection(page < 4 ? page : page is 5 or 6 or 7 ? 3 : 2);
+        Menu.TouchDiagnostic += message => TouchDiagnostic?.Invoke(message);
         Menu.SetCanvas(new(1280, 960));
         ContentView.AddChild(Menu);
         var shader = new Shader { Code = """
@@ -156,17 +157,15 @@ internal sealed partial class NativeOwnedRenderedScreen : Node
         }
         if (input is InputEventScreenTouch touch)
         {
-            var touchMouse = new InputEventMouseButton
+            var local = touch.Position - _device.GlobalPosition;
+            var canvasPoint = SourcePoint(local);
+            if (canvasPoint is { } point)
             {
-                Position = touch.Position,
-                GlobalPosition = touch.Position,
-                ButtonIndex = MouseButton.Left,
-                Pressed = touch.Pressed,
-                ButtonMask = touch.Pressed ? MouseButtonMask.Left : (MouseButtonMask)0,
-                Device = touch.Device,
-                DoubleClick = false,
-            };
-            DispatchPointer(touch.Position, touchMouse);
+                TouchDiagnostic?.Invoke($"TOUCH_MAP pressed={touch.Pressed} canvas={point}");
+                Menu.HandleTouch(point, touch.Pressed);
+            }
+            else TouchDiagnostic?.Invoke($"TOUCH_MAP miss pressed={touch.Pressed} screen={touch.Position}");
+            GetViewport().SetInputAsHandled();
             return;
         }
         if (input is InputEventScreenDrag drag)
