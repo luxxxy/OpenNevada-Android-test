@@ -229,10 +229,21 @@ internal sealed class OpeningRaceSexMenuHost
         else
             RenderSliderRows(capacity);
         _visibleEntryCount = Math.Min(capacity, count - _scrollOffset);
+        var firstRow = _content.GetChildren().OfType<Control>()
+            .FirstOrDefault(child =>
+                child.Name.StartsWith("OwnedRaceSexSlider_", StringComparison.Ordinal) ||
+                child.Name.StartsWith("OwnedRaceSexList_", StringComparison.Ordinal));
         GD.Print(
-            "OPENNV_NEW_GAME_RACESEX_ACTIVE_LIST " +
-            $"user0={_activeList} first={_scrollOffset} " +
-            $"visible={_visibleEntryCount} total={count} " +
+            "OPENNV_NEW_GAME_RACESEX_LAYOUT_DIAG " +
+            $"page={_activeList} first={_scrollOffset} visible={_visibleEntryCount} total={count} " +
+            $"rootPos={_root.Position} rootSize={_root.Size} rootGlobal={_root.GetGlobalRect()} " +
+            $"contentPos={_content.Position} contentSize={_content.Size} contentGlobal={_content.GetGlobalRect()} " +
+            $"backgroundRect={_source.SharedControls.BackgroundRect} " +
+            $"listRect={_source.SharedControls.List.Rect} sliderRect={_source.SharedControls.Slider.Rect} " +
+            $"top={_source.SharedControls.TopBound:R} bottom={_source.SharedControls.BottomBound:R} " +
+            $"firstRow={(firstRow is null ? "none" : firstRow.Name)} " +
+            $"firstRowPos={(firstRow is null ? Vector2.Zero : firstRow.Position)} " +
+            $"firstRowGlobal={(firstRow is null ? new Rect2() : firstRow.GetGlobalRect())} " +
             $"rowHeight={(_listEntries.Count > 0 ? _source.ListItem.Rect.Size.Y : _source.Slider.Rect.Size.Y):R}");
     }
 
