@@ -21,7 +21,7 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         panel.OffsetLeft = 12;
         panel.OffsetTop = 12;
         panel.OffsetRight = 452;
-        panel.OffsetBottom = 292;
+        panel.OffsetBottom = 336;
         var style = new StyleBoxFlat { BgColor = new Color(0, 0, 0, .88f) };
         style.SetContentMarginAll(10);
         panel.AddThemeStyleboxOverride("panel", style);
