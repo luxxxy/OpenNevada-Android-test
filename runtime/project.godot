@@ -25,7 +25,7 @@ window/handheld/orientation=6
 
 [physics]
 
-3d/physics_engine="Jolt Physics"
+3d/physics_engine="GodotPhysics3D"
 jolt_physics_3d/queries/enable_ray_cast_face_index=true
 
 [rendering]
