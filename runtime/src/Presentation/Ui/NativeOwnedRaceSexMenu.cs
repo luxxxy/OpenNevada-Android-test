@@ -15,7 +15,7 @@ internal sealed partial class NativeOwnedRaceSexMenu : Control
     private readonly NativeOwnedMenuTree _tiles;
     private readonly FalloutPluginStack _records;
     private readonly XElement _panel, _template, _sliderTemplate, _back, _next, _up, _down;
-    private sealed record Target(XElement Tile, XElement Owner, NativeOwnedTileTarget Button);
+    private sealed record Target(XElement Tile, XElement Owner, NativeOwnedTileTarget Button, Action Activate);
     private readonly List<Target> _targets = [];
     private readonly List<XElement> _rows = [];
     private readonly Dictionary<XElement, NativeRaceSexSlider> _sliders = [];
@@ -25,6 +25,7 @@ internal sealed partial class NativeOwnedRaceSexMenu : Control
     private bool _faulted;
     internal event Action<int>? Navigate;
     internal event Action<int>? PageChanged;
+    internal event Action<string>? TouchDiagnostic;
     internal Rect2 Panel => new(_tiles.Position(_panel), new(_tiles.Number(_panel, "width"), _tiles.Number(_panel, "height")));
 
     internal NativeOwnedRaceSexMenu(FalloutPluginStack records, Action<Exception> failed)
@@ -140,12 +141,32 @@ internal sealed partial class NativeOwnedRaceSexMenu : Control
     private void AddTarget(XElement tile, XElement owner, Action action, bool focus = true)
     {
         var button = new NativeOwnedTileTarget { Name = (string)tile.Attribute("name")!, FocusMode = focus ? FocusModeEnum.All : FocusModeEnum.None };
-        button.Pressed += () => { if (!_faulted) Try(action); };
+        button.Pressed += () => { TouchDiagnostic?.Invoke($"GUI_PRESS target={button.Name}"); if (!_faulted) Try(action); };
         button.MouseEntered += () => Highlight(tile, 1);
         button.MouseExited += () => Highlight(tile, button.HasFocus() ? 1 : 0);
         button.FocusEntered += () => Highlight(tile, 1);
         button.FocusExited += () => Highlight(tile, button.IsHovered() ? 1 : 0);
-        AddChild(button); _targets.Add(new(tile, owner, button));
+        AddChild(button); _targets.Add(new(tile, owner, button, action));
+    }
+    internal bool HandleTouch(Vector2 canvasPosition, bool pressed)
+    {
+        if (_faulted) { TouchDiagnostic?.Invoke("TOUCH_ACTION blocked=faulted"); return false; }
+        var target = _targets.LastOrDefault(candidate => candidate.Button.Visible &&
+            new Rect2(candidate.Button.Position, candidate.Button.Size).HasPoint(canvasPosition));
+        if (target is null)
+        {
+            TouchDiagnostic?.Invoke($"TOUCH_TARGET miss point={canvasPosition}");
+            return false;
+        }
+        TouchDiagnostic?.Invoke($"TOUCH_TARGET {(pressed ? "down" : "up")} name={target.Button.Name} owner={target.Owner.Attribute("name")?.Value}");
+        Highlight(target.Tile, pressed ? 1 : target.Button.HasFocus() ? 1 : 0);
+        if (!pressed)
+        {
+            TouchDiagnostic?.Invoke($"TOUCH_ACTION invoke={target.Button.Name}");
+            Try(target.Activate);
+            TouchDiagnostic?.Invoke($"TOUCH_ACTION complete={target.Button.Name} faulted={_faulted}");
+        }
+        return true;
     }
     private void Highlight(XElement tile, int value) { _tiles.Bind(tile, "mouseover", value); QueueRedraw(); }
     internal void SetCanvas(Vector2 size) { Size = _tiles.Screen = size; _tiles.ResolutionConverter = 1; Layout(); }
