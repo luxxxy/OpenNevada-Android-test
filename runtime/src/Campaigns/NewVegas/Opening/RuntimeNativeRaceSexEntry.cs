@@ -27,6 +27,12 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
     internal NativeOwnedActorPreview Portrait => _portrait ?? throw new InvalidOperationException("Character portrait is not ready.");
     internal ClassicPortraitMode PortraitMode { get; private set; }
     private Button? _envision;
+    private CanvasLayer? _touchDebugLayer;
+    private Button? _touchDebugToggle;
+    private PanelContainer? _touchDebugPanel;
+    private TextEdit? _touchDebugFeed;
+    private readonly Queue<string> _touchDebugEvents = new();
+    private int _touchDebugSequence;
 
     internal void EnableEnvision(ClassicPortraitMode initial)
     {
@@ -96,6 +102,8 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
         AddChild(_device);
         _screen = new(_device, records, _settings, Fail); AddChild(_screen);
         _screen.Menu.Navigate += Navigate;
+        _screen.TouchDiagnostic += RecordTouchDiagnostic;
+        BuildTouchDebugOverlay();
         GetViewport().SizeChanged += Resize;
         _pausedTree = GetTree(); _previousPause = _pausedTree.Paused; _pausedTree.Paused = true;
         _background = imageSpace?.BeginMenuBackground(records, FalloutMenuBackgroundKind.Popup);
@@ -103,7 +111,75 @@ internal partial class RuntimeNativeRaceSexEntry : CanvasLayer
         RefreshPreview(); ShowPage();
         GD.Print($"OPENNV_NATIVE_CREATION_PRESENTED pages={_creation.Headers.Count} controls={_creation.Controls.Controls.Count} source=owned-nif-xml-fnt-ctl-player-records parity=unverified");
     }
-    private void Resize() => _device.Size = GetViewport().GetVisibleRect().Size;
+    private void Resize()
+    {
+        var size = GetViewport().GetVisibleRect().Size;
+        _device.Size = size;
+        if (_touchDebugToggle is not null) _touchDebugToggle.Position = new Vector2(Mathf.Max(8, size.X - 190), 8);
+        if (_touchDebugPanel is not null) _touchDebugPanel.Size = new Vector2(Mathf.Max(280, size.X - 24), Mathf.Clamp(size.Y * 0.55f, 300, 560));
+    }
+
+    private void BuildTouchDebugOverlay()
+    {
+        // This is the actual Race/Sex entry shown on the user's device.
+        // A child CanvasLayer above the device and portrait guarantees overlay ordering.
+        var layer = new CanvasLayer { Name = "RaceSexTouchDebugRoot", Layer = 125 };
+        AddChild(layer);
+        _touchDebugLayer = layer;
+        var size = GetViewport().GetVisibleRect().Size;
+        var toggle = new Button { Name = "RaceSexTouchDebugToggle", Text = "TOUCH DEBUG",
+            Position = new Vector2(Mathf.Max(8, size.X - 190), 8), Size = new Vector2(176, 44),
+            ZIndex = 4096, MouseFilter = Control.MouseFilterEnum.Stop, FocusMode = Control.FocusModeEnum.All };
+        toggle.Pressed += () =>
+        {
+            if (_touchDebugPanel is null) return;
+            _touchDebugPanel.Visible = !_touchDebugPanel.Visible;
+            RecordTouchDiagnostic("overlay " + (_touchDebugPanel.Visible ? "opened" : "closed"));
+        };
+        layer.AddChild(toggle);
+        _touchDebugToggle = toggle;
+        _screen.RegisterExternalControl(toggle);
+        var panel = new PanelContainer { Name = "RaceSexTouchDebugPanel", Position = new Vector2(12, 60),
+            Size = new Vector2(Mathf.Max(280, size.X - 24), Mathf.Clamp(size.Y * 0.55f, 300, 560)),
+            Visible = false, ZIndex = 4097, MouseFilter = Control.MouseFilterEnum.Stop };
+        var column = new VBoxContainer();
+        panel.AddChild(column);
+        column.AddChild(new Label { Text = "Race/Sex touch pipeline · live diagnostics" });
+        var feed = new TextEdit { Name = "RaceSexTouchDebugFeed", Editable = false,
+            WrapMode = TextEdit.LineWrappingMode.Boundary, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill, CustomMinimumSize = new Vector2(0, 190) };
+        column.AddChild(feed);
+        _touchDebugFeed = feed;
+        var actions = new HBoxContainer();
+        column.AddChild(actions);
+        var copy = new Button { Text = "COPY REPORT", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        copy.Pressed += () => { DisplayServer.ClipboardSet(string.Join("\n", _touchDebugEvents)); RecordTouchDiagnostic("report copied"); };
+        actions.AddChild(copy);
+        var clear = new Button { Text = "CLEAR", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        clear.Pressed += () => { _touchDebugEvents.Clear(); RefreshTouchDebugFeed(); RecordTouchDiagnostic("feed cleared"); };
+        actions.AddChild(clear);
+        var close = new Button { Text = "CLOSE", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        close.Pressed += () => panel.Visible = false;
+        actions.AddChild(close);
+        layer.AddChild(panel);
+        _touchDebugPanel = panel;
+        _screen.RegisterExternalControl(panel);
+        RecordTouchDiagnostic($"overlay mounted viewport={size} entryLayer={Layer} overlayLayer={layer.Layer}");
+    }
+
+    private void RecordTouchDiagnostic(string detail)
+    {
+        var line = $"{DateTime.Now:HH:mm:ss.fff} #{++_touchDebugSequence:D4} {detail}";
+        _touchDebugEvents.Enqueue(line);
+        while (_touchDebugEvents.Count > 160) _touchDebugEvents.Dequeue();
+        GD.Print("OPENNV_RACESEX_TOUCH_REPORT " + line);
+        RefreshTouchDebugFeed();
+    }
+
+    private void RefreshTouchDebugFeed()
+    {
+        if (_touchDebugFeed is not null) _touchDebugFeed.Text = string.Join("\n", _touchDebugEvents);
+    }
     private string Text(string setting) => FalloutGameSettingStrings.Read(_records, setting);
     private NativeRaceSexChoice Link(int page) => new(_creation.Header(page) + " >", false, () => { _page = page; ShowPage(); }, Selectable: false);
     private NativeRaceSexChoice Slider(string setting, int min, int max, int jump, Func<int> get, Action<int> set, Func<string>? display = null)
