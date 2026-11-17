@@ -158,9 +158,10 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         var renderMeshes = nodes.OfType<MeshInstance3D>().Where(mesh => mesh.Visible && mesh.Mesh is not null).ToArray();
         var activeMaterials = renderMeshes.Select(mesh => mesh.GetActiveMaterial(0)).Where(material => material is not null).ToArray();
         lines.Add($"RENDER: visibleMeshes={renderMeshes.Length}, materials={activeMaterials.Length}, shader={activeMaterials.OfType<ShaderMaterial>().Count()}, standard={activeMaterials.OfType<StandardMaterial3D>().Count()}, other={activeMaterials.Count(material => material is not ShaderMaterial && material is not StandardMaterial3D)}");
-        var materialSamples = renderMeshes
-            .OrderBy(mesh => diagnosticDistance(mesh, nodes))
-            .Take(10);
+        var renderPlayer = nodes.OfType<CharacterBody3D>().FirstOrDefault();
+        var materialSamples = renderPlayer is null
+            ? renderMeshes.Take(10)
+            : renderMeshes.OrderBy(mesh => mesh.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition)).Take(10);
         foreach (var mesh in materialSamples)
         {
             var material = mesh.GetActiveMaterial(0);
