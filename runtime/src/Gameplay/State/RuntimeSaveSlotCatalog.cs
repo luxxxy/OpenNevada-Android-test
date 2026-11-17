@@ -135,6 +135,9 @@ internal sealed class RuntimeSaveSlotCatalog
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
         if (archive.Entries.Count is < 2 or > 1001)
             throw new InvalidDataException("Save backup contains an unexpected number of files.");
+        if (archive.Entries.GroupBy(entry => entry.FullName, StringComparer.Ordinal)
+            .Any(group => group.Count() != 1))
+            throw new InvalidDataException("Save backup contains duplicate archive paths.");
         var manifestEntry = archive.GetEntry("manifest.json")
             ?? throw new InvalidDataException("Save backup manifest is missing.");
         using var manifestDocument = JsonDocument.Parse(ReadEntry(manifestEntry, 64 * 1024));
@@ -148,6 +151,7 @@ internal sealed class RuntimeSaveSlotCatalog
         var currentBytes = ReadEntry(currentEntry, 64 * 1024 * 1024);
         using var validatedCurrent = Validate(currentBytes);
         var importedSlots = new List<(Guid Id, byte[] Bytes)>();
+        var importedIds = new HashSet<Guid>();
         long totalBytes = currentBytes.Length;
         foreach (var entry in archive.Entries)
         {
@@ -157,8 +161,8 @@ internal sealed class RuntimeSaveSlotCatalog
                 !entry.FullName.EndsWith(".json", StringComparison.Ordinal))
                 throw new InvalidDataException("Save backup contains an unexpected path.");
             var idText = Path.GetFileNameWithoutExtension(entry.FullName);
-            if (!Guid.TryParseExact(idText, "N", out var id))
-                throw new InvalidDataException("Save backup contains an invalid slot identity.");
+            if (!Guid.TryParseExact(idText, "N", out var id) || !importedIds.Add(id))
+                throw new InvalidDataException("Save backup contains an invalid or duplicate slot identity.");
             var bytes = ReadEntry(entry, 64 * 1024 * 1024);
             totalBytes += bytes.Length;
             if (totalBytes > 256L * 1024 * 1024)
@@ -166,6 +170,10 @@ internal sealed class RuntimeSaveSlotCatalog
             using var validated = Validate(bytes);
             importedSlots.Add((id, bytes));
         }
+
+        if (!manifest.TryGetProperty("slotCount", out var slotCount) ||
+            !slotCount.TryGetInt32(out var expectedSlotCount) || expectedSlotCount != importedSlots.Count)
+            throw new InvalidDataException("Save backup slot count does not match its contents.");
 
         // Validate the complete archive before changing any live save. Keep the
         // current Continue state as a slot before activating the imported one.
