@@ -234,8 +234,8 @@ internal sealed class OpeningRaceSexMenuHost
         _visibleEntryCount = Math.Min(capacity, count - _scrollOffset);
         var firstRow = _content.GetChildren().OfType<Control>()
             .FirstOrDefault(child =>
-                child.Name.StartsWith("OwnedRaceSexSlider_", StringComparison.Ordinal) ||
-                child.Name.StartsWith("OwnedRaceSexList_", StringComparison.Ordinal));
+                child.Name.ToString().StartsWith("OwnedRaceSexSlider_", StringComparison.Ordinal) ||
+                child.Name.ToString().StartsWith("OwnedRaceSexList_", StringComparison.Ordinal));
         GD.Print(
             "OPENNV_NEW_GAME_RACESEX_LAYOUT_DIAG " +
             $"page={_activeList} first={_scrollOffset} visible={_visibleEntryCount} total={count} " +
