@@ -58,19 +58,23 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         };
         var nodes = Descendants(GetTree().Root).ToArray();
         var cellRoots = nodes.OfType<Node3D>()
-            .Where(node => node.HasMeta("opennv_land_candidate_meshes"))
+            .Where(node => node.HasMeta("opennv_land_candidate_meshes") ||
+                node.Name.ToString().StartsWith("CELL_", StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if (cellRoots.Length == 0)
             lines.Add("CELL roots: none found yet");
         foreach (var cell in cellRoots)
         {
-            var candidates = cell.GetMeta("opennv_land_candidate_meshes").AsInt32();
-            var requested = cell.GetMeta("opennv_land_collision_requested").AsBool();
-            var created = cell.GetMeta("opennv_land_collision_created").AsBool();
+            var hasLandMeta = cell.HasMeta("opennv_land_candidate_meshes");
+            var candidates = hasLandMeta ? cell.GetMeta("opennv_land_candidate_meshes").AsInt32() : -1;
+            var requested = hasLandMeta && cell.GetMeta("opennv_land_collision_requested").AsBool();
+            var created = hasLandMeta && cell.GetMeta("opennv_land_collision_created").AsBool();
             var landBody = Descendants(cell).OfType<StaticBody3D>()
                 .FirstOrDefault(body => body.Name == "LAND_ACTIVE_SET_COLLISION");
             var shape = landBody is null ? null : Descendants(landBody).OfType<CollisionShape3D>().FirstOrDefault();
-            lines.Add($"CELL {cell.Name}: LAND meshes={candidates}, requested={requested}, created={created}");
+            lines.Add(hasLandMeta
+                ? $"CELL {cell.Name}: LAND meshes={candidates}, requested={requested}, created={created}"
+                : $"CELL {cell.Name}: LAND metadata MISSING");
             lines.Add(landBody is null
                 ? "  LAND body: MISSING"
                 : $"  LAND body: layer={landBody.CollisionLayer}, pos={Vec(landBody.GlobalPosition)}, scale={Vec(landBody.GlobalBasis.Scale)}");
@@ -97,17 +101,35 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             query.CollideWithBodies = true;
             var hit = player.GetWorld3D().DirectSpaceState.IntersectRay(query);
             if (hit.Count == 0)
-                lines.Add("  DOWN RAY: NO HIT (42m)");
+                lines.Add("  DOWN RAY (player mask): NO HIT (42m)");
             else
             {
                 var collider = hit["collider"].AsGodotObject() as Node;
                 var point = hit["position"].AsVector3();
-                lines.Add($"  DOWN RAY: HIT {collider?.GetPath().ToString() ?? "unknown"} at {Vec(point)}");
+                lines.Add($"  DOWN RAY (player mask): HIT {collider?.GetPath().ToString() ?? "unknown"} at {Vec(point)}");
+            }
+
+            var allLayersQuery = PhysicsRayQueryParameters3D.Create(from, to, uint.MaxValue);
+            allLayersQuery.CollideWithAreas = false;
+            allLayersQuery.CollideWithBodies = true;
+            var allLayersHit = player.GetWorld3D().DirectSpaceState.IntersectRay(allLayersQuery);
+            if (allLayersHit.Count == 0)
+                lines.Add("  DOWN RAY (all layers): NO HIT (42m)");
+            else
+            {
+                var collider = allLayersHit["collider"].AsGodotObject() as CollisionObject3D;
+                var point = allLayersHit["position"].AsVector3();
+                lines.Add($"  DOWN RAY (all layers): HIT {collider?.Name} layer={collider?.CollisionLayer} at {Vec(point)}");
             }
         }
 
         var staticBodies = nodes.OfType<StaticBody3D>().ToArray();
         var shapes = nodes.OfType<CollisionShape3D>().ToArray();
+        var layerSummary = staticBodies
+            .GroupBy(body => body.CollisionLayer)
+            .OrderBy(group => group.Key)
+            .Select(group => $"{group.Key}:{group.Count()}");
+        lines.Add($"StaticBody layers: {(layerSummary.Any() ? string.Join(", ", layerSummary) : "none")}");
         lines.Add($"Scene totals: staticBodies={staticBodies.Length}, collisionShapes={shapes.Length}, meshes={nodes.OfType<MeshInstance3D>().Count()}");
         return string.Join("\n", lines);
     }
