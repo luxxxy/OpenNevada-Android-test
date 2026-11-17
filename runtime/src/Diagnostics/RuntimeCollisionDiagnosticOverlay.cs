@@ -190,24 +190,50 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
         var activeMaterials = renderMeshes.Select(mesh => mesh.GetActiveMaterial(0)).Where(material => material is not null).ToArray();
         lines.Add($"RENDER: visibleMeshes={renderMeshes.Length}, materials={activeMaterials.Length}, shader={activeMaterials.OfType<ShaderMaterial>().Count()}, standard={activeMaterials.OfType<StandardMaterial3D>().Count()}, other={activeMaterials.Count(material => material is not ShaderMaterial && material is not StandardMaterial3D)}");
         var renderPlayer = nodes.OfType<CharacterBody3D>().FirstOrDefault();
-        var materialSamples = renderPlayer is null
-            ? renderMeshes.Take(10)
-            : renderMeshes.OrderBy(mesh => mesh.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition)).Take(10);
-        foreach (var mesh in materialSamples)
+        var nearbyMeshes = renderPlayer is null
+            ? renderMeshes.Take(32).ToArray()
+            : renderMeshes.OrderBy(mesh => mesh.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition)).Take(32).ToArray();
+        lines.Add($"NEARBY RENDER GEOMETRY: sampled={nearbyMeshes.Length} (closest to player)");
+        foreach (var mesh in nearbyMeshes)
         {
             var surfaceCount = mesh.Mesh?.GetSurfaceCount() ?? 0;
-            var material = mesh.GetActiveMaterial(0);
-            var materialName = material is null ? "NONE" : $"{material.GetType().Name}:{material.ResourceName}";
-            var meta = material is not null && material.HasMeta("opennv_nif_material_fallback")
-                ? $" fallback={material.GetMeta("opennv_nif_material_fallback").AsString()}"
-                : string.Empty;
-            lines.Add($"  DRAW {mesh.Name}: visible={mesh.IsVisibleInTree()} shadows={mesh.CastShadow} surfaces={surfaceCount} material0={materialName}{meta}");
-            for (var surface = 1; surface < Math.Min(surfaceCount, 4); surface++)
+            var bounds = mesh.GetAabb();
+            var worldCenter = mesh.ToGlobal(bounds.Position + bounds.Size * 0.5f);
+            var distance = renderPlayer is null ? -1f : mesh.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition);
+            lines.Add($"  GEO {mesh.GetPath()}: dist={distance:F2} center={Vec(worldCenter)} size={Vec(bounds.Size)} visible={mesh.IsVisibleInTree()} shadows={mesh.CastShadow} surfaces={surfaceCount} meshType={mesh.Mesh?.GetClass()}");
+            for (var surface = 0; surface < surfaceCount; surface++)
             {
-                var surfaceMaterial = mesh.GetActiveMaterial(surface);
-                lines.Add($"    SURFACE {surface}: {(surfaceMaterial is null ? "NONE" : surfaceMaterial.GetType().Name + ":" + surfaceMaterial.ResourceName)}");
+                var material = mesh.GetActiveMaterial(surface);
+                var materialName = material is null ? "NONE" : $"{material.GetType().Name}:{material.ResourceName}";
+                var meta = material is not null && material.HasMeta("opennv_nif_material_fallback")
+                    ? $" fallback={material.GetMeta("opennv_nif_material_fallback").AsString()}"
+                    : string.Empty;
+                var arrays = mesh.Mesh!.SurfaceGetArrays(surface);
+                var vertexCount = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array().Length;
+                var indexVariant = arrays[(int)Mesh.ArrayType.Index];
+                var indexCount = indexVariant.VariantType == Variant.Type.PackedInt32Array
+                    ? indexVariant.AsInt32Array().Length : 0;
+                var normalVariant = arrays[(int)Mesh.ArrayType.Normal];
+                var uvVariant = arrays[(int)Mesh.ArrayType.TexUV];
+                var normalCount = normalVariant.VariantType == Variant.Type.PackedVector3Array
+                    ? normalVariant.AsVector3Array().Length : 0;
+                var uvCount = uvVariant.VariantType == Variant.Type.PackedVector2Array
+                    ? uvVariant.AsVector2Array().Length : 0;
+                lines.Add($"    SURFACE {surface}: vertices={vertexCount} indices={indexCount} triangles={indexCount / 3} normals={normalCount} uvs={uvCount} material={materialName}{meta}");
+                if (material is ShaderMaterial shaderMaterial && shaderMaterial.Shader is Shader shader)
+                    lines.Add($"      SHADER: codeLength={shader.Code.Length} resource={shader.ResourcePath}");
+                else if (material is StandardMaterial3D standard)
+                    lines.Add($"      STANDARD: albedo={standard.AlbedoColor} texture={(standard.AlbedoTexture is null ? "none" : standard.AlbedoTexture.GetClass().ToString())} cull={standard.CullMode}");
             }
+            foreach (var key in new[] { "opennv_source", "opennv_nif_material_fallback", "opennv_nif_shader_flags", "opennv_land_render_status" })
+                if (mesh.HasMeta(key)) lines.Add($"      META {key}={mesh.GetMeta(key).ToString()}");
         }
+        var nearbyLights = nodes.OfType<OmniLight3D>()
+            .Where(light => renderPlayer is null || light.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition) < 25f)
+            .OrderBy(light => renderPlayer is null ? 0f : light.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition))
+            .Take(12);
+        foreach (var light in nearbyLights)
+            lines.Add($"  LIGHT {light.GetPath()}: pos={Vec(light.GlobalPosition)} range={light.OmniRange:F2} energy={light.LightEnergy:F2} shadows={light.ShadowEnabled} visible={light.IsVisibleInTree()}");
         var staticBodies = nodes.OfType<StaticBody3D>().ToArray();
         var shapes = nodes.OfType<CollisionShape3D>().ToArray();
         var layerSummary = staticBodies
