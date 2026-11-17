@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.Json;
 
 namespace OpenNV.Runtime.Gameplay.State;
@@ -75,6 +76,142 @@ internal sealed class RuntimeSaveSlotCatalog
             Create(() => { });
         AtomicWrite(_canonicalSavePath, bytes);
         return ReadMetadata(source);
+    }
+
+    internal void ExportBackup(string destinationPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
+        if (!File.Exists(_canonicalSavePath))
+            throw new FileNotFoundException("There is no current campaign save to export.", _canonicalSavePath);
+
+        var current = File.ReadAllBytes(_canonicalSavePath);
+        using var validatedCurrent = Validate(current);
+        var slots = Directory.Exists(_slotDirectory)
+            ? Directory.EnumerateFiles(_slotDirectory, "*.json", SearchOption.TopDirectoryOnly)
+                .Select(path => (Name: Path.GetFileName(path), Bytes: File.ReadAllBytes(path)))
+                .OrderBy(row => row.Name, StringComparer.Ordinal)
+                .ToArray()
+            : [];
+        foreach (var slot in slots)
+        {
+            if (!Guid.TryParseExact(Path.GetFileNameWithoutExtension(slot.Name), "N", out _))
+                throw new InvalidDataException("A save slot has an invalid identity and cannot be exported.");
+            using var validated = Validate(slot.Bytes);
+        }
+
+        var fullPath = Path.GetFullPath(destinationPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        var temporary = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false))
+            {
+                var manifest = archive.CreateEntry("manifest.json", CompressionLevel.Optimal);
+                using (var writer = new StreamWriter(manifest.Open()))
+                    writer.Write(JsonSerializer.Serialize(new
+                    {
+                        schema = "opennv-save-transfer/v1",
+                        exportedUtc = DateTime.UtcNow,
+                        slotCount = slots.Length,
+                    }));
+                WriteEntry(archive, "current.json", current);
+                foreach (var slot in slots)
+                    WriteEntry(archive, "slots/" + slot.Name, slot.Bytes);
+            }
+            File.Move(temporary, fullPath, true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    internal int ImportBackup(string sourcePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+        var fullPath = Path.GetFullPath(sourcePath);
+        using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+        if (archive.Entries.Count is < 2 or > 1001)
+            throw new InvalidDataException("Save backup contains an unexpected number of files.");
+        if (archive.Entries.GroupBy(entry => entry.FullName, StringComparer.Ordinal)
+            .Any(group => group.Count() != 1))
+            throw new InvalidDataException("Save backup contains duplicate archive paths.");
+        var manifestEntry = archive.GetEntry("manifest.json")
+            ?? throw new InvalidDataException("Save backup manifest is missing.");
+        using var manifestDocument = JsonDocument.Parse(ReadEntry(manifestEntry, 64 * 1024));
+        var manifest = manifestDocument.RootElement;
+        if (!manifest.TryGetProperty("schema", out var schema) ||
+            schema.GetString() != "opennv-save-transfer/v1")
+            throw new InvalidDataException("Save backup format is not supported.");
+
+        var currentEntry = archive.GetEntry("current.json")
+            ?? throw new InvalidDataException("Save backup has no current campaign save.");
+        var currentBytes = ReadEntry(currentEntry, 64 * 1024 * 1024);
+        using var validatedCurrent = Validate(currentBytes);
+        var importedSlots = new List<(Guid Id, byte[] Bytes)>();
+        var importedIds = new HashSet<Guid>();
+        long totalBytes = currentBytes.Length;
+        foreach (var entry in archive.Entries)
+        {
+            if (entry.FullName is "manifest.json" or "current.json") continue;
+            if (!entry.FullName.StartsWith("slots/", StringComparison.Ordinal) ||
+                entry.FullName.IndexOf('/', "slots/".Length) >= 0 ||
+                !entry.FullName.EndsWith(".json", StringComparison.Ordinal))
+                throw new InvalidDataException("Save backup contains an unexpected path.");
+            var idText = Path.GetFileNameWithoutExtension(entry.FullName);
+            if (!Guid.TryParseExact(idText, "N", out var id) || !importedIds.Add(id))
+                throw new InvalidDataException("Save backup contains an invalid or duplicate slot identity.");
+            var bytes = ReadEntry(entry, 64 * 1024 * 1024);
+            totalBytes += bytes.Length;
+            if (totalBytes > 256L * 1024 * 1024)
+                throw new InvalidDataException("Save backup exceeds the supported size limit.");
+            using var validated = Validate(bytes);
+            importedSlots.Add((id, bytes));
+        }
+
+        if (!manifest.TryGetProperty("slotCount", out var slotCount) ||
+            !slotCount.TryGetInt32(out var expectedSlotCount) || expectedSlotCount != importedSlots.Count)
+            throw new InvalidDataException("Save backup slot count does not match its contents.");
+
+        // Validate the complete archive before changing any live save. Keep the
+        // current Continue state as a slot before activating the imported one.
+        if (File.Exists(_canonicalSavePath))
+        {
+            var currentLive = File.ReadAllBytes(_canonicalSavePath);
+            using var validatedLive = Validate(currentLive);
+            if (!currentLive.AsSpan().SequenceEqual(currentBytes))
+                Create(() => { });
+        }
+        Directory.CreateDirectory(_slotDirectory);
+        foreach (var slot in importedSlots)
+        {
+            var target = SlotPath(slot.Id);
+            if (!File.Exists(target))
+                AtomicWrite(target, slot.Bytes);
+        }
+        AtomicWrite(_canonicalSavePath, currentBytes);
+        return importedSlots.Count;
+    }
+
+    private static void WriteEntry(ZipArchive archive, string name, byte[] bytes)
+    {
+        var entry = archive.CreateEntry(name, CompressionLevel.Optimal);
+        using var output = entry.Open();
+        output.Write(bytes);
+    }
+
+    private static byte[] ReadEntry(ZipArchiveEntry entry, long maximumBytes)
+    {
+        if (entry.Length < 0 || entry.Length > maximumBytes)
+            throw new InvalidDataException("Save backup entry exceeds the supported size limit.");
+        using var input = entry.Open();
+        using var output = new MemoryStream((int)entry.Length);
+        input.CopyTo(output);
+        if (output.Length != entry.Length)
+            throw new InvalidDataException("Save backup entry length is inconsistent.");
+        return output.ToArray();
     }
 
     private RuntimeSaveSlotMetadata ReadMetadata(string path)

@@ -155,6 +155,8 @@ public partial class RuntimeCoordinator : Node3D
             AddChild(performanceObserver);
             if (OS.GetCmdlineUserArgs().Contains("--fps-overlay", StringComparer.Ordinal))
                 AddChild(new RuntimeFpsOverlay());
+            if (OS.GetCmdlineUserArgs().Contains("--collision-diagnostics", StringComparer.Ordinal))
+                AddChild(new OpenNV.Runtime.Diagnostics.RuntimeCollisionDiagnosticOverlay());
             if (launch.LoadingTitle is not null)
                 _loadingScreen?.SetTitle(launch.LoadingTitle);
             RuntimeLaunchValidator.ValidatePreflight(_options);

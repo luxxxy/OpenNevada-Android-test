@@ -8,6 +8,7 @@ internal enum FalloutScriptArgumentKind
 {
     Number, Identifier, String, Value,
     OptionalNumber, OptionalIdentifier, OptionalString, OptionalValue,
+    SourceString,
 }
 internal readonly record struct FalloutScriptArgument(FalloutScriptValue Value, string? Identifier = null)
 {
@@ -22,9 +23,11 @@ internal sealed class FalloutScriptFunction
 {
     private readonly Func<IReadOnlyList<FalloutScriptArgument>, double>? _invoke;
     private readonly Func<IReadOnlyList<FalloutScriptArgument>, FalloutScriptValue>? _invokeValue;
+    private readonly Func<FalloutScriptValue, IReadOnlyList<FalloutScriptArgument>, FalloutScriptValue>? _invokeReference;
 
     internal IReadOnlyList<FalloutScriptArgumentKind> Arguments { get; }
     internal bool ReadOnly { get; init; }
+    internal FalloutScriptArgumentKind? Variadic { get; init; }
     internal Func<IReadOnlyList<FalloutScriptArgument>, double> Invoke =>
         arguments => InvokeValue(arguments).Number;
 
@@ -43,10 +46,38 @@ internal sealed class FalloutScriptFunction
     }
 
     internal static FalloutScriptFunction Typed(IReadOnlyList<FalloutScriptArgumentKind> arguments,
-        Func<IReadOnlyList<FalloutScriptArgument>, FalloutScriptValue> invoke) => new(arguments, invoke);
+        Func<IReadOnlyList<FalloutScriptArgument>, FalloutScriptValue> invoke,
+        bool readOnly = false, FalloutScriptArgumentKind? variadic = null) =>
+        new(arguments, invoke) { ReadOnly = readOnly, Variadic = variadic };
+
+    private FalloutScriptFunction(FalloutScriptFunction signature,
+        Func<FalloutScriptValue, IReadOnlyList<FalloutScriptArgument>, FalloutScriptValue> invoke)
+    {
+        Arguments = signature.Arguments;
+        ReadOnly = signature.ReadOnly;
+        Variadic = signature.Variadic;
+        _invokeReference = invoke;
+    }
+
+    internal static FalloutScriptFunction Reference(FalloutScriptFunction signature,
+        Func<FalloutScriptValue, IReadOnlyList<FalloutScriptArgument>, FalloutScriptValue> invoke) =>
+        new(signature, invoke);
+
+    internal static void RequireReference(FalloutScriptValue caller)
+    {
+        if (caller.Kind != FalloutScriptValueKind.Form || caller.Number == 0)
+            throw new InvalidDataException("Reference function requires a non-null typed form identity.");
+    }
+
+    internal FalloutScriptValue InvokeReferenceValue(FalloutScriptValue caller, IReadOnlyList<FalloutScriptArgument> arguments)
+    {
+        RequireReference(caller);
+        return (_invokeReference ?? throw new InvalidDataException("Function has no reference caller binding."))(caller, arguments);
+    }
 
     internal FalloutScriptValue InvokeValue(IReadOnlyList<FalloutScriptArgument> arguments) =>
-        _invokeValue is not null ? _invokeValue(arguments) : _invoke!(arguments);
+        _invokeValue is not null ? _invokeValue(arguments) :
+            (_invoke ?? throw new InvalidDataException("Reference function has no caller."))(arguments);
 }
 internal sealed record FalloutScriptEventProgram(string Event, string? Filter, FalloutGameModeProgram Program,
     IReadOnlyList<string>? Parameters = null);
@@ -66,6 +97,10 @@ internal sealed partial class FalloutGameModeProgram
 {
     internal const int ParserVersion = 5;
     private readonly IReadOnlyList<string[]> _lines;
+    private string? _programSha256;
+    internal string ProgramSha256 => _programSha256 ??= Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(_lines)))
+        .ToLowerInvariant();
     private readonly Dictionary<int, int> _loopEnds = [];
     private FalloutGameModeProgram(IReadOnlyList<string[]> lines)
     {

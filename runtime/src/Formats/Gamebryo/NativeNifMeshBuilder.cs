@@ -1519,10 +1519,10 @@ internal static partial class RuntimeNativeNifMeshBuilder
                 Transform = ConvertTransform(source.Transform),
                 Visible = (source.Flags & HiddenFlag) == 0,
                 Mesh = mesh,
-                // A retained export shape without a shader has no runtime
-                // draw pass. Keep its source geometry and identity; Godot's
-                // default material must not turn it into a visible solid.
-                Layers = material.HasMeta("opennv_nif_no_render_shader") ? 0u : 1u,
+                // Shaderless material-only NIF surfaces still carry authored
+                // vertex colours/material tint. BuildVertexMaterialOnly supplies
+                // a deliberate unlit fallback, so keep the surface in the draw pass.
+                Layers = 1u,
             };
             result.SetMeta("opennv_nif_geometry_block", source.Block.Index);
             if (morph is not null) result.SetMeta("opennv_landscape_morph_targets", morph.Heights.Length);
@@ -1552,11 +1552,79 @@ internal static partial class RuntimeNativeNifMeshBuilder
             }
             PreserveCollisionMetadata(result, collision);
             AddCollision(result, collision);
+            if (collision is null && skinBinding is null)
+                AddGeneratedPlanarSurfaceCollision(result, vertices, indices);
             NodeCount++;
             SurfaceCount++;
             VertexCount += vertices.Length;
             TriangleCount += indices.Length / 3;
             return result;
+        }
+
+        private static void AddGeneratedPlanarSurfaceCollision(
+            MeshInstance3D owner,
+            IReadOnlyList<Vector3> vertices,
+            IReadOnlyList<int> indices)
+        {
+            // Some interior architecture NIFs contain renderable floor/wall slabs
+            // but no Havok attachment. These broad, thin surfaces still need a
+            // static world collider so the player and dropped items cannot pass
+            // through them. Keep this fallback deliberately narrow: small props,
+            // clutter, and skinned geometry are not converted.
+            if (vertices.Count < 4 || indices.Count < 6 || indices.Count % 3 != 0)
+                return;
+
+            var minimum = vertices[0];
+            var maximum = vertices[0];
+            foreach (var vertex in vertices)
+            {
+                minimum = new Vector3(
+                    MathF.Min(minimum.X, vertex.X),
+                    MathF.Min(minimum.Y, vertex.Y),
+                    MathF.Min(minimum.Z, vertex.Z));
+                maximum = new Vector3(
+                    MathF.Max(maximum.X, vertex.X),
+                    MathF.Max(maximum.Y, vertex.Y),
+                    MathF.Max(maximum.Z, vertex.Z));
+            }
+
+            var extent = maximum - minimum;
+            var dimensions = new[] { extent.X, extent.Y, extent.Z };
+            Array.Sort(dimensions);
+            if (dimensions[0] > 0.20f ||
+                dimensions[1] < 1.50f ||
+                dimensions[2] < 1.50f ||
+                dimensions[1] * dimensions[2] < 2.25f)
+                return;
+
+            var faces = new Vector3[indices.Count];
+            for (var index = 0; index < indices.Count; index++)
+            {
+                var vertexIndex = indices[index];
+                if ((uint)vertexIndex >= (uint)vertices.Count)
+                    throw new InvalidDataException("Generated NIF surface collision index exceeds its vertex table.");
+                faces[index] = vertices[vertexIndex];
+            }
+
+            var shape = new ConcavePolygonShape3D { BackfaceCollision = true };
+            shape.SetFaces(faces);
+            var body = new StaticBody3D
+            {
+                Name = "NifGeneratedPlanarSurfaceCollision",
+                CollisionLayer = 1,
+                CollisionMask = 1,
+            };
+            body.SetMeta("opennv_collision_owner", "generated-from-broad-planar-nif-geometry");
+            body.SetMeta("opennv_nif_generated_collision_vertices", vertices.Count);
+            body.SetMeta("opennv_nif_generated_collision_triangles", indices.Count / 3);
+            body.SetMeta("opennv_nif_generated_collision_bounds", extent);
+            var collision = new CollisionShape3D
+            {
+                Name = "NifGeneratedPlanarSurfaceShape",
+                Shape = shape,
+            };
+            body.AddChild(collision);
+            owner.AddChild(body);
         }
 
         private Color[] VertexColors(FalloutNifGeometry geometry, FalloutNifMeshData data)
@@ -2077,13 +2145,18 @@ internal static partial class RuntimeNativeNifMeshBuilder
                     $"NIF geometry {geometry.Block.Index} lacks complete source vertex material inputs.");
             var result = new StandardMaterial3D
             {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                CullMode = BaseMaterial3D.CullModeEnum.Disabled,
                 VertexColorUseAsAlbedo = mesh.Colors.Length != 0,
                 AlbedoColor = new Color(1.0f, 1.0f, 1.0f, material.Alpha),
+                Transparency = material.Alpha < 1.0f
+                    ? BaseMaterial3D.TransparencyEnum.Alpha
+                    : BaseMaterial3D.TransparencyEnum.Disabled,
                 Metallic = 0.0f,
                 Roughness = GlossToRoughness(material.Glossiness),
                 ResourceName = $"NIF vertex material {material.Block.Index}",
             };
-            result.SetMeta("opennv_nif_no_render_shader", true);
+            result.SetMeta("opennv_nif_material_fallback", "unlit-vertex-colour");
             return result;
         }
 

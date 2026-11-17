@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace OpenNV.Runtime.Content;
 
@@ -10,13 +11,14 @@ internal enum FalloutScriptLocalKind
     Array,
 }
 
-internal readonly record struct FalloutScriptLocalDeclaration(uint Index, FalloutScriptLocalKind Kind);
+internal readonly record struct FalloutScriptLocalDeclaration(uint Index, FalloutScriptLocalKind Kind, bool IsInteger = false);
 
 internal enum FalloutScriptValueKind
 {
     Number,
     String,
     Form,
+    Array,
 }
 
 // Script expressions need to keep forms distinct from numbers. A form still
@@ -65,6 +67,21 @@ internal readonly record struct FalloutScriptValue
 
     internal static FalloutScriptValue String(string value) => value;
 
+    internal FalloutFormKey FormKey(FalloutPluginStack records)
+    {
+        if (Kind != FalloutScriptValueKind.Form) throw new InvalidDataException("Script argument has no typed form identity.");
+        if (((uint)_number & 0xff000000) == 0xff000000 && records.Plugins.Count < 256)
+            throw new NotSupportedException("This operation has no transient runtime reference owner.");
+        return records.RuntimeFormKey((uint)_number);
+    }
+
+    internal static FalloutScriptValue Array(double value)
+    {
+        if (value < 0 || value >= uint.MaxValue || value != Math.Truncate(value))
+            throw new InvalidDataException("Script array identity is invalid.");
+        return new(FalloutScriptValueKind.Array, value, null);
+    }
+
     internal string Stringize(Func<uint, string>? formName)
     {
         return Kind switch
@@ -81,12 +98,37 @@ internal readonly record struct FalloutScriptValue
 internal sealed record FalloutScriptValueContext(
     Func<string, FalloutScriptValue> Read,
     Action<string, FalloutScriptValue> Write,
-    Func<uint, string>? FormName = null);
+    Func<uint, string>? FormName = null,
+    FalloutScriptArrayStore? Arrays = null,
+    Func<string, FalloutScriptFunction?>? ReferenceFunction = null,
+    Func<string, bool>? IsForm = null,
+    Func<string, bool>? HasValueOwner = null)
+{
+    internal static bool IsBareSourceName(string token) => Regex.IsMatch(token,
+        @"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant);
+
+    // Only an explicitly declared source-string parameter admits an unbound
+    // bare name as literal text. Ownership checks are pure metadata and stay
+    // inside this deferred read; an inactive argument never binds a local.
+    internal FalloutScriptValue ReadSourceString(string token)
+    {
+        var value = token.Length >= 2 && token[0] == '"' && token[^1] == '"'
+            ? FalloutScriptValue.String(token[1..^1])
+            : IsBareSourceName(token)
+                ? (HasValueOwner ?? throw new NotSupportedException(
+                    "Source-string argument has no operand declaration owner."))(token)
+                    ? Read(token) : FalloutScriptValue.String(token)
+                : Read(token);
+        return value.Kind == FalloutScriptValueKind.String ? value :
+            throw new InvalidDataException("Source-string argument requires a string value.");
+    }
+}
 
 internal sealed record FalloutScriptStringSnapshot(uint Id, string Plugin, string Text);
 internal sealed record FalloutScriptValueStoreSnapshot(
     uint LastStringId,
-    IReadOnlyList<FalloutScriptStringSnapshot> Strings, ulong? RandomState = null);
+    IReadOnlyList<FalloutScriptStringSnapshot> Strings, ulong? RandomState = null,
+    uint? LastArrayId = null, IReadOnlyList<FalloutScriptArraySnapshot>? Arrays = null);
 
 // Compiled string_var locals retain numeric handles for compatibility with
 // the source format. Text ownership lives here, so a typed assignment can
@@ -96,11 +138,15 @@ internal sealed class FalloutScriptValueStore
     private readonly Dictionary<uint, FalloutScriptStringSnapshot> _strings = [];
     private uint _lastStringId;
     private FalloutSoundRandomState? _random;
+    internal FalloutScriptArrayStore Arrays { get; } = new();
 
     // Shared reference/quest/result stream; its sequence is not retail parity.
-    internal uint RandomPercent() => (uint)RandomIndex(100);
-    internal int RandomIndex(int count) => count > 0 ? (int)(_random ??= new(BitConverter.ToUInt64(
-        System.Security.Cryptography.RandomNumberGenerator.GetBytes(sizeof(ulong))))).NextBounded((uint)count) : throw new ArgumentOutOfRangeException(nameof(count));
+    internal uint RandomPercent() => RandomBounded(100);
+    internal int RandomIndex(int exclusiveUpperBound) => exclusiveUpperBound > 0
+        ? checked((int)RandomBounded((uint)exclusiveUpperBound))
+        : throw new ArgumentOutOfRangeException(nameof(exclusiveUpperBound));
+    internal uint RandomBounded(uint exclusiveUpperBound) => (_random ??= new(BitConverter.ToUInt64(
+        System.Security.Cryptography.RandomNumberGenerator.GetBytes(sizeof(ulong))))).NextBounded(exclusiveUpperBound);
 
     internal FalloutScriptValue Read(FalloutScriptLocalKind kind, double raw)
     {
@@ -109,22 +155,23 @@ internal sealed class FalloutScriptValueStore
             FalloutScriptLocalKind.Number => raw,
             FalloutScriptLocalKind.Form => FalloutScriptValue.Form(raw),
             FalloutScriptLocalKind.String => ReadString(raw),
-            FalloutScriptLocalKind.Array => throw new NotSupportedException(
-                "Array local needs an array value owner."),
+            FalloutScriptLocalKind.Array => Arrays.Reference(raw),
             _ => throw new InvalidDataException("Script local kind is invalid."),
         };
     }
 
     internal double Write(FalloutScriptLocalKind kind, double previous, FalloutScriptValue value,
-        string ownerPlugin)
+        string ownerPlugin, string? ownerLocal = null)
     {
+        if (value.Kind == FalloutScriptValueKind.Array && kind != FalloutScriptLocalKind.Array)
+            throw new InvalidDataException("Array identity cannot be stored in a scalar script local.");
         return kind switch
         {
             FalloutScriptLocalKind.Number => value.Number,
             FalloutScriptLocalKind.Form => FalloutScriptValue.Form(value.Number).Number,
             FalloutScriptLocalKind.String => WriteString(previous, value, ownerPlugin),
-            FalloutScriptLocalKind.Array => throw new NotSupportedException(
-                "Array local needs an array value owner."),
+            FalloutScriptLocalKind.Array => Arrays.SetRoot(ownerLocal ?? throw new InvalidDataException(
+                "Script array local has no instance owner."), value).Number,
             _ => throw new InvalidDataException("Script local kind is invalid."),
         };
     }
@@ -144,12 +191,14 @@ internal sealed class FalloutScriptValueStore
     }
 
     internal FalloutScriptValueStoreSnapshot Capture() =>
-        new(_lastStringId, _strings.Values.OrderBy(value => value.Id).ToArray(), _random?.State);
+        new(_lastStringId, _strings.Values.OrderBy(value => value.Id).ToArray(), _random?.State,
+            Arrays.LastId, Arrays.Capture());
 
     internal void Restore(FalloutScriptValueStoreSnapshot? snapshot)
     {
         if (snapshot is null)
         {
+            Arrays.Restore(null, null);
             _strings.Clear();
             _lastStringId = 0;
             _random = null;
@@ -166,10 +215,18 @@ internal sealed class FalloutScriptValueStore
                 throw new InvalidDataException("Saved script string identity is invalid or duplicated.");
             _ = FalloutScriptValue.String(value.Text);
         }
+        var randomState = snapshot.RandomState is { } random ? new FalloutSoundRandomState(random) : null;
+        Arrays.Restore(snapshot.LastArrayId, snapshot.Arrays);
         _strings.Clear();
         foreach (var (id, value) in values) _strings.Add(id, value);
         _lastStringId = snapshot.LastStringId;
-        _random = snapshot.RandomState is { } random ? new(random) : null;
+        _random = randomState;
+    }
+
+    internal void ValidateLocal(FalloutScriptLocalKind kind, double raw, string ownerLocal)
+    {
+        if (kind == FalloutScriptLocalKind.String) ValidateHandle(raw);
+        if (kind == FalloutScriptLocalKind.Array) Arrays.SetRoot(ownerLocal, Arrays.Reference(raw));
     }
 
     internal void ValidateHandle(double raw)

@@ -53,6 +53,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
     private FalloutSkyLightingState? _skyLighting;
     private bool _restoringEnteredStage;
     private Func<RuntimeNativeImageSpace> _imageSpacePresenter = null!;
+    private Godot.Timer? _openingWatchdog;
     internal string? ExecutionError { get; private set; }
     private readonly List<object> _headTrackingCommands = [];
     internal object[] HeadTrackingCommands => _headTrackingCommands.ToArray();
@@ -232,7 +233,7 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
 
     public override void _Process(double delta)
     {
-        if (ExecutionError is not null) return;
+        if (GetTree().Paused || ExecutionError is not null) return;
         try
         {
             _ingestibles.Advance(delta);
@@ -263,6 +264,22 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
 
     public override void _Ready()
     {
+        // Keep a tiny recovery watchdog alive while modal screens pause gameplay.
+        ProcessMode = ProcessModeEnum.Always;
+        SetProcess(true);
+        var watchdog = new Godot.Timer
+        {
+            Name = "OpeningPauseRecoveryWatchdog",
+            WaitTime = 0.25,
+            OneShot = false,
+            Autostart = false,
+            ProcessMode = ProcessModeEnum.Always
+        };
+        watchdog.Timeout += RecoverOrphanedOpeningPause;
+        _openingWatchdog = watchdog;
+        AddChild(watchdog);
+        watchdog.Start(0.25);
+        GD.Print($"OPENNV_OPENING_WATCHDOG_STARTED insideTree={watchdog.IsInsideTree()} stopped={watchdog.IsStopped()} processMode={watchdog.ProcessMode}");
         _playerPackage = new RuntimeNativePlayerPackage(_pluginStack, _player);
         _speech = new RuntimeNativeSpeech();
         _speech.InfoCompleted += _ =>
@@ -288,6 +305,24 @@ internal partial class RuntimeNativeOpeningStageDriver : Node
         AddChild(_speech);
         ConfigureConversation();
         ApplyEnteredActorCommands();
+    }
+
+    private void RecoverOrphanedOpeningPause()
+    {
+        if (!GetTree().Paused || ExecutionError is not null || _moviePlaying ||
+            PendingBlockers.Count != 0 || _nameEntry is not null || _raceSexEntry is not null ||
+            _vigorEntry is not null || _tagSkillEntry is not null || _traitEntry is not null ||
+            _recipeMenu is not null || _barterMenu is not null)
+            return;
+
+        // No modal owner remains, so the pause is stale. Do not unpause while
+        // a real blocker, movie, or owned modal is active.
+        GD.PushWarning(
+            $"OPENNV_ORPHANED_PAUSE_RECOVERY quest={QuestEditorId} stage={Stage} " +
+            "reason=no-opening-blockers-or-modal-ui action=force-unpause");
+        GetTree().Paused = false;
+        _player.SetModalInput(false);
+        _player.ApplySourceControls(_machine.ControlState);
     }
 
     private void Synchronize()

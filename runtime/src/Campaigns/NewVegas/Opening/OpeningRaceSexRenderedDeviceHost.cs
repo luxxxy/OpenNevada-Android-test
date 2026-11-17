@@ -35,6 +35,11 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
     private int _creatorBodyAlignmentSurface = -1;
     private int _creatorFaceAlignmentSurface = -1;
     private int _shellSurface = -1;
+    private readonly Queue<string> _touchDebugEvents = new();
+    private TextEdit? _touchDebugFeed;
+    private PanelContainer? _touchDebugPanel;
+    private CanvasLayer? _touchDebugLayer;
+    private int _touchDebugSequence;
 
     internal Control ScreenRoot { get; }
     internal SubViewport ScreenViewport { get; }
@@ -116,6 +121,105 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
         };
         screenInput.GuiInput += ForwardScreenInput;
         host.AddChild(screenInput);
+        BuildTouchDebugPanel();
+    }
+
+    private void BuildTouchDebugPanel()
+    {
+        // Keep diagnostics outside the rendered Reflectron texture. A Control added
+        // directly to _host can be covered/clipped by the device presentation; a
+        // high CanvasLayer is composited over the complete game viewport instead.
+        var overlay = new CanvasLayer
+        {
+            Name = "RaceSexTouchDebugOverlay",
+            Layer = 100,
+        };
+        _host.AddChild(overlay);
+        _touchDebugLayer = overlay;
+
+        var toggle = new Button
+        {
+            Name = "RaceSexTouchDebugToggle",
+            Text = "TOUCH DEBUG",
+            Position = new Vector2(Mathf.Max(12.0f, _canvasSize.X - 204.0f), 12.0f),
+            Size = new Vector2(176.0f, 48.0f),
+            ZIndex = 120,
+            MouseFilter = Control.MouseFilterEnum.Stop,
+        };
+        toggle.Pressed += () =>
+        {
+            if (_touchDebugPanel is null) return;
+            _touchDebugPanel.Visible = !_touchDebugPanel.Visible;
+            RecordTouchDebug($"panel {(_touchDebugPanel.Visible ? "opened" : "closed")}");
+        };
+        overlay.AddChild(toggle);
+
+        var panel = new PanelContainer
+        {
+            Name = "RaceSexTouchDebugPanel",
+            Position = new Vector2(12.0f, 68.0f),
+            Size = new Vector2(Mathf.Max(260.0f, _canvasSize.X - 24.0f),
+                Mathf.Clamp(_canvasSize.Y * 0.48f, 300.0f, 620.0f)),
+            Visible = false,
+            ZIndex = 121,
+            MouseFilter = Control.MouseFilterEnum.Stop,
+        };
+        var column = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill };
+        panel.AddChild(column);
+        var heading = new Label { Text = "Race/Sex input pipeline", AutowrapMode = TextServer.AutowrapMode.Word };
+        column.AddChild(heading);
+        _touchDebugFeed = new TextEdit
+        {
+            Name = "RaceSexTouchDebugEventFeed",
+            Editable = false,
+            WrapMode = TextEdit.LineWrappingMode.Boundary,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(0, 190),
+            MouseFilter = Control.MouseFilterEnum.Stop,
+        };
+        column.AddChild(_touchDebugFeed);
+        var actions = new HBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        column.AddChild(actions);
+        var copy = new Button { Text = "COPY REPORT", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        copy.Pressed += () =>
+        {
+            var report = string.Join("\n", _touchDebugEvents);
+            DisplayServer.ClipboardSet(report);
+            RecordTouchDebug("report copied to clipboard");
+        };
+        actions.AddChild(copy);
+        var clear = new Button { Text = "CLEAR", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        clear.Pressed += () =>
+        {
+            _touchDebugEvents.Clear();
+            RefreshTouchDebugFeed();
+            RecordTouchDebug("event feed cleared");
+        };
+        actions.AddChild(clear);
+        var close = new Button { Text = "CLOSE", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        close.Pressed += () => panel.Visible = false;
+        actions.AddChild(close);
+        overlay.AddChild(panel);
+        _touchDebugPanel = panel;
+        RecordTouchDebug($"debug panel ready canvas={_canvasSize}");
+    }
+
+    private void RecordTouchDebug(string message)
+    {
+        var line = $"{DateTime.Now:HH:mm:ss.fff} #{++_touchDebugSequence:D4} {message}";
+        _touchDebugEvents.Enqueue(line);
+        while (_touchDebugEvents.Count > 120)
+            _touchDebugEvents.Dequeue();
+        GD.Print("OPENNV_RACESEX_TOUCH_DEBUG " + line);
+        RefreshTouchDebugFeed();
+    }
+
+    private void RefreshTouchDebugFeed()
+    {
+        if (_touchDebugFeed is null) return;
+        _touchDebugFeed.Text = string.Join("\n", _touchDebugEvents);
     }
 
     internal void SetActiveList(string activeList)
@@ -991,22 +1095,72 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
 
     private void ForwardScreenInput(InputEvent input)
     {
-        if (input is not InputEventMouse mouse)
+        // Android sends touchscreen events, not desktop mouse events. Convert a
+        // single-finger tap/drag to the mouse events consumed by the projected
+        // RaceSex screen viewport so its ordinary Godot Buttons remain usable.
+        InputEventMouse? mouse = input switch
+        {
+            InputEventMouse existing => existing,
+            InputEventScreenTouch touch => new InputEventMouseButton
+            {
+                Position = touch.Position,
+                GlobalPosition = touch.Position,
+                ButtonIndex = MouseButton.Left,
+                ButtonMask = touch.Pressed ? MouseButtonMask.Left : (MouseButtonMask)0,
+                Pressed = touch.Pressed,
+                Device = touch.Device,
+            },
+            InputEventScreenDrag drag => new InputEventMouseMotion
+            {
+                Position = drag.Position,
+                GlobalPosition = drag.Position,
+                Relative = drag.Relative,
+                Velocity = drag.Velocity,
+                ButtonMask = MouseButtonMask.Left,
+                Device = drag.Device,
+            },
+            _ => null,
+        };
+        if (mouse is null)
             return;
+        var isTouchEdge = input is InputEventScreenTouch ||
+            input is InputEventMouseButton;
+        if (isTouchEdge)
+            RecordTouchDebug($"1 INPUT {input.GetType().Name} pos={mouse.Position} pressed={(input is InputEventScreenTouch st ? st.Pressed : input is InputEventMouseButton mb && mb.Pressed)}");
+        if (isTouchEdge)
+            GD.Print(
+                "OPENNV_RACESEX_TOUCH_DIAG " +
+                $"event={input.GetType().Name} hostPos={mouse.Position} " +
+                $"hostGlobalRect={_host.GetGlobalRect()} canvas={_canvasSize}");
         if (!TryMapScreenPointer(mouse.Position, out var screenPosition))
         {
-            if (_screenPointerInside && input is InputEventMouseButton { Pressed: false })
-                PushScreenMouse(input, _lastScreenPointerPosition);
+            if (isTouchEdge)
+            {
+                RecordTouchDebug($"2 MAP MISS hostPos={mouse.Position} wasInside={_screenPointerInside}");
+                GD.Print(
+                    "OPENNV_RACESEX_TOUCH_MAP miss " +
+                    $"hostPos={mouse.Position} wasInside={_screenPointerInside}");
+            }
+            if (_screenPointerInside && mouse is InputEventMouseButton { Pressed: false })
+                PushScreenMouse(mouse, _lastScreenPointerPosition);
             if (_screenPointerInside)
                 ScreenViewport.NotifyMouseExited();
             _screenPointerInside = false;
             return;
         }
+        if (isTouchEdge)
+        {
+            RecordTouchDebug($"2 MAP HIT hostPos={mouse.Position} screenPos={screenPosition} viewport={ScreenViewport.Size}");
+            GD.Print(
+                "OPENNV_RACESEX_TOUCH_MAP hit " +
+                $"hostPos={mouse.Position} screenPos={screenPosition} " +
+                $"viewport={ScreenViewport.Size}");
+        }
         if (!_screenPointerInside)
             ScreenViewport.NotifyMouseEntered();
         _screenPointerInside = true;
         _lastScreenPointerPosition = screenPosition;
-        PushScreenMouse(input, screenPosition);
+        PushScreenMouse(mouse, screenPosition);
     }
 
     private void PushScreenMouse(InputEvent input, Vector2 screenPosition)
@@ -1015,6 +1169,16 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
         forwarded.Position = screenPosition;
         forwarded.GlobalPosition = screenPosition;
         ScreenViewport.PushInput(forwarded, true);
+        if (input is InputEventScreenTouch { Pressed: true } || input is InputEventMouseButton { Pressed: true })
+        {
+            var capturedPosition = screenPosition;
+            Callable.From(() =>
+            {
+                var focus = ScreenViewport.GuiGetFocusOwner();
+                var focusName = focus is null ? "<none>" : $"{focus.GetPath()} ({focus.GetClass()})";
+                RecordTouchDebug($"3 DISPATCH focus={focusName} mapped={capturedPosition}");
+            }).CallDeferred();
+        }
     }
 
     private bool TryMapScreenPointer(Vector2 hostPosition, out Vector2 screenPosition)

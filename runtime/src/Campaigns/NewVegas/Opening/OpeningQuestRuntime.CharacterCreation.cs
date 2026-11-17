@@ -372,10 +372,26 @@ internal partial class OpeningQuestRuntime
                     () =>
                     {
                         _raceFormId = selectedRace.FormId;
-                        var sex = CurrentSex();
-                        _hairFormId = sex.DefaultHairFormId;
-                        _eyesFormId = sex.DefaultEyesFormId;
-                        RenderPreview(sex);
+                        var engineSex = appearance.SexEngineValues[_sexIndex];
+                        var compatiblePreview = admittedPreviews.FirstOrDefault(preview =>
+                            preview.Sex.Equals(engineSex, StringComparison.OrdinalIgnoreCase) &&
+                            preview.RaceFormId.Equals(
+                                _raceFormId,
+                                StringComparison.OrdinalIgnoreCase));
+                        if (compatiblePreview is null)
+                        {
+                            GD.PrintErr(
+                                "OPENNV_NEW_GAME_RACE_PREVIEW_MISSING " +
+                                $"sex={engineSex} race={_raceFormId}");
+                            showRace();
+                            return;
+                        }
+                        // The race's declared defaults are not guaranteed to be among
+                        // the exact FaceGen combinations admitted by the preview inventory.
+                        // Select a known-compatible hair/eyes pair before rebuilding the preview.
+                        _hairFormId = compatiblePreview.HairFormId;
+                        _eyesFormId = compatiblePreview.EyesFormId;
+                        RenderPreview(CurrentSex());
                         showRace();
                     });
             }).ToArray(),

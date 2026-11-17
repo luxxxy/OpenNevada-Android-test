@@ -7,9 +7,23 @@ namespace OpenNV.Runtime.Content;
 // set/if. Typed values still belong to the caller's real script state owner.
 internal static class FalloutNvseNumericExpression
 {
-    private sealed record Operand(Func<FalloutScriptValue> Value, string? Target = null);
+    private readonly struct Operand
+    {
+        private readonly Func<FalloutScriptValue>? _evaluate;
+        private readonly FalloutScriptValue _constant;
+        internal Func<(Func<FalloutScriptValue> Read, Action<FalloutScriptValue> Write)>? Target { get; }
 
-    internal static bool IsAssignment(string token) => token is "=" or ":=" or "+=" or "-=" or "*=" or "/=";
+        internal Operand(Func<FalloutScriptValue> evaluate,
+            Func<(Func<FalloutScriptValue> Read, Action<FalloutScriptValue> Write)>? target = null)
+        { _evaluate = evaluate; Target = target; _constant = default; }
+        internal Operand(FalloutScriptValue constant)
+        { _constant = constant; _evaluate = null; Target = null; }
+        internal FalloutScriptValue Value() => _evaluate is null ? _constant : _evaluate();
+        internal Func<FalloutScriptValue> Deferred() => _evaluate ?? ConstantReader(_constant);
+        private static Func<FalloutScriptValue> ConstantReader(FalloutScriptValue constant) => () => constant;
+    }
+
+    internal static bool IsAssignment(string token) => token is "=" or ":=" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=";
 
     internal static double Evaluate(IReadOnlyList<string> tokens, Func<string, double> variable,
         Action<string, double> assign, Func<string, FalloutScriptFunction?>? function = null,
@@ -20,20 +34,90 @@ internal static class FalloutNvseNumericExpression
     internal static FalloutScriptValue EvaluateValue(IReadOnlyList<string> tokens,
         FalloutScriptValueContext values, Func<string, FalloutScriptFunction?>? function = null,
         Func<string, string, FalloutScriptFunction>? userFunction = null,
-        bool nvseLogical = true)
+        bool nvseLogical = true) =>
+        Parse(tokens, values, function, userFunction, nvseLogical, operandOnly: false).Operand.Value();
+
+    // Statement arguments can contain one complete primary/postfix operand.
+    // Return its deferred evaluation so syntax can be checked without calling
+    // a receiver, argument function or assignment while determining extent.
+    internal static (Func<FalloutScriptValue> Value, int Count) ReadOperand(IReadOnlyList<string> tokens,
+        FalloutScriptValueContext values, Func<string, FalloutScriptFunction?>? function = null,
+        Func<string, string, FalloutScriptFunction>? userFunction = null, int start = 0)
     {
-        var at = 0;
+        var parsed = Parse(tokens, values, function, userFunction, nvseLogical: true, operandOnly: true, start: start);
+        return (parsed.Operand.Deferred(), parsed.Count);
+    }
+
+    // Visit the complete syntax, including short-circuited operands, without
+    // reading values, invoking a command or consuming random/lifecycle state.
+    internal static void Inspect(IReadOnlyList<string> tokens, FalloutScriptValueContext values,
+        Func<string, FalloutScriptFunction?>? function, Func<string, string, FalloutScriptFunction>? userFunction,
+        Action<string> inspectValue, bool nvseLogical = true) =>
+        _ = Parse(tokens, values, function, userFunction, nvseLogical, operandOnly: false, inspectValue);
+
+    private static (Operand Operand, int Count) Parse(IReadOnlyList<string> tokens,
+        FalloutScriptValueContext values, Func<string, FalloutScriptFunction?>? function,
+        Func<string, string, FalloutScriptFunction>? userFunction, bool nvseLogical, bool operandOnly,
+        Action<string>? inspectValue = null, int start = 0)
+    {
+        if (start < 0 || start > tokens.Count) throw new ArgumentOutOfRangeException(nameof(start));
+        var at = start;
         FalloutScriptFunction? Resolve(string token)
         {
-            if (!token.Split('.')[^1].Equals("call", StringComparison.OrdinalIgnoreCase))
-                return function?.Invoke(token);
+            if (!token.AsSpan(token.LastIndexOf('.') + 1).Equals("call", StringComparison.OrdinalIgnoreCase))
+                return function?.Invoke(token) ?? values.Arrays?.Function(token);
             if (at >= tokens.Count || !Identifier(tokens[at]))
                 throw new NotSupportedException("Call needs a bound function identity.");
             return (userFunction ?? throw new NotSupportedException("Call has no user-function owner."))(
                 token, tokens[at++]);
         }
 
-        Operand Read(int precedence)
+        IReadOnlyList<Func<FalloutScriptArgument>> Arguments(string name, FalloutScriptFunction command)
+        {
+            var arguments = new List<Func<FalloutScriptArgument>>();
+            var argumentIndex = 0;
+            while (argumentIndex < command.Arguments.Count || command.Variadic is not null)
+            {
+                var variadic = argumentIndex >= command.Arguments.Count;
+                var kind = variadic ? command.Variadic!.Value : command.Arguments[argumentIndex++];
+                var optional = kind is FalloutScriptArgumentKind.OptionalNumber or
+                    FalloutScriptArgumentKind.OptionalIdentifier or FalloutScriptArgumentKind.OptionalString or
+                    FalloutScriptArgumentKind.OptionalValue;
+                var required = kind switch
+                {
+                    FalloutScriptArgumentKind.OptionalNumber => FalloutScriptArgumentKind.Number,
+                    FalloutScriptArgumentKind.OptionalIdentifier => FalloutScriptArgumentKind.Identifier,
+                    FalloutScriptArgumentKind.OptionalString => FalloutScriptArgumentKind.String,
+                    FalloutScriptArgumentKind.OptionalValue => FalloutScriptArgumentKind.Value,
+                    _ => kind,
+                };
+                if ((optional || variadic) && (at >= tokens.Count || !CanStartOptionalArgument(tokens[at], required)))
+                    break;
+                if (required == FalloutScriptArgumentKind.Identifier)
+                {
+                    if (at >= tokens.Count || !Identifier(tokens[at]))
+                        throw new InvalidDataException($"Script function {name} needs an identifier argument.");
+                    var argumentName = tokens[at++];
+                    arguments.Add(() => new(0, argumentName));
+                }
+                else
+                {
+                    var argument = Read(14, required == FalloutScriptArgumentKind.SourceString);
+                    arguments.Add(() =>
+                    {
+                        var value = argument.Value();
+                        if (required == FalloutScriptArgumentKind.SourceString && value.Kind != FalloutScriptValueKind.String)
+                            throw new InvalidDataException("Source-string argument requires a string value.");
+                        if (required == FalloutScriptArgumentKind.Number && value.Kind == FalloutScriptValueKind.Array)
+                            throw new InvalidDataException("Numeric script argument cannot use an array identity.");
+                        return required == FalloutScriptArgumentKind.Number ? new(value.Number) : new(value, null);
+                    });
+                }
+            }
+            return arguments;
+        }
+
+        Operand Read(int precedence, bool sourceString = false)
         {
             if (at >= tokens.Count) throw new InvalidDataException("Missing NVSE expression operand.");
             var token = tokens[at++];
@@ -49,27 +133,17 @@ internal static class FalloutNvseNumericExpression
             {
                 var operand = Read(token == "!" ? 13 :
                     token.Equals("ToString", StringComparison.OrdinalIgnoreCase) ? 14 : 12);
-                left = new(() =>
-                {
-                    var value = operand.Value();
-                    return token.ToLowerInvariant() switch
-                    {
-                        "-" => Finite(-value.Number),
-                        "+" => value.Number,
-                        "!" => value.Truth ? 0 : 1,
-                        _ => value.Stringize(values.FormName),
-                    };
-                });
+                left = Unary(token, operand, values);
             }
             else if (token.Length >= 2 && token[0] == '"' && token[^1] == '"')
             {
                 var literal = FalloutScriptValue.String(token[1..^1]);
-                left = new(() => literal);
+                left = new(literal);
             }
-            else if (double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
+            else if (TryLiteral(token, out var number))
             {
                 var literal = (FalloutScriptValue)Finite(number);
-                left = new(() => literal);
+                left = new(literal);
             }
             else if (!Identifier(token))
             {
@@ -77,90 +151,61 @@ internal static class FalloutNvseNumericExpression
             }
             else if (Resolve(token) is { } command)
             {
-                var arguments = new List<Func<FalloutScriptArgument>>();
-                foreach (var kind in command.Arguments)
-                {
-                    var optional = kind is FalloutScriptArgumentKind.OptionalNumber or
-                        FalloutScriptArgumentKind.OptionalIdentifier or FalloutScriptArgumentKind.OptionalString or
-                        FalloutScriptArgumentKind.OptionalValue;
-                    var required = kind switch
-                    {
-                        FalloutScriptArgumentKind.OptionalNumber => FalloutScriptArgumentKind.Number,
-                        FalloutScriptArgumentKind.OptionalIdentifier => FalloutScriptArgumentKind.Identifier,
-                        FalloutScriptArgumentKind.OptionalString => FalloutScriptArgumentKind.String,
-                        FalloutScriptArgumentKind.OptionalValue => FalloutScriptArgumentKind.Value,
-                        _ => kind,
-                    };
-                    if (optional && (at >= tokens.Count || !CanStartOptionalArgument(tokens[at], required)))
-                        break;
-                    if (required == FalloutScriptArgumentKind.Identifier)
-                    {
-                        if (at >= tokens.Count || !Identifier(tokens[at]))
-                            throw new InvalidDataException($"Script function {token} needs an identifier argument.");
-                        var name = tokens[at++];
-                        arguments.Add(() => new(0, name));
-                    }
-                    else
-                    {
-                        var argument = Read(14);
-                        arguments.Add(() => required == FalloutScriptArgumentKind.Number
-                            ? new(argument.Value().Number)
-                            : new(argument.Value(), null));
-                    }
-                }
-                left = new(() => command.InvokeValue(arguments.Select(argument => argument()).ToArray()));
+                var arguments = Arguments(token, command);
+                left = FunctionValue(command, arguments);
             }
             else
             {
-                left = new(() => values.Read(token), token);
+                var bareSourceName = sourceString && FalloutScriptValueContext.IsBareSourceName(token) &&
+                    (at >= tokens.Count || tokens[at] is not ("[" or "."));
+                if (inspectValue is not null && (!bareSourceName || values.HasValueOwner?.Invoke(token) == true))
+                    inspectValue(token);
+                left = Variable(token, bareSourceName, values);
             }
 
-            while (at < tokens.Count && Priority(tokens[at]) is var priority && priority > precedence)
+            while (at < tokens.Count)
             {
+                if (tokens[at] == ".")
+                {
+                    ++at;
+                    if (at >= tokens.Count || !Regex.IsMatch(tokens[at],
+                        @"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant))
+                        throw new InvalidDataException("Postfix reference call needs a method name.");
+                    var name = tokens[at++];
+                    var command = values.ReferenceFunction?.Invoke(name) ??
+                        throw new NotSupportedException($"Postfix reference function {name} has no runtime owner.");
+                    var arguments = Arguments(name, command);
+                    var receiver = left;
+                    left = ReferenceValue(command, arguments, receiver);
+                    continue;
+                }
+                if (tokens[at] == "[")
+                {
+                    ++at;
+                    var container = left;
+                    var key = Read(-1);
+                    if (at >= tokens.Count || tokens[at++] != "]") throw new InvalidDataException("Unclosed script array index.");
+                    left = Indexed(container, key, values);
+                    continue;
+                }
+                var priority = Priority(tokens[at]);
+                if (priority <= precedence) break;
                 var op = tokens[at++];
                 var before = left;
                 // Plain assignment is right-associative; other admitted
                 // operators follow the documented NVSE precedence table.
                 var right = Read(op is "=" or ":=" ? priority - 1 : priority);
-                if (IsAssignment(op))
-                {
-                    var target = before.Target ?? throw new InvalidDataException(
-                        "NVSE assignment needs a variable target.");
-                    left = new(() =>
-                    {
-                        var value = op is "=" or ":="
-                            ? right.Value()
-                            : Apply(op[..1], before.Value(), right.Value());
-                        values.Write(target, value);
-                        return value;
-                    });
-                }
-                else
-                {
-                    left = new(() =>
-                    {
-                        var value = before.Value();
-                        if (op == "||")
-                            return nvseLogical
-                                ? value.Truth ? value.Logical : right.Value().Logical
-                                : value.Truth || right.Value().Truth ? 1 : 0;
-                        if (op == "&&")
-                            return nvseLogical
-                                ? value.Truth ? right.Value().Logical : 0
-                                : value.Truth && right.Value().Truth ? 1 : 0;
-                        return Apply(op, value, right.Value());
-                    });
-                }
+                left = Combine(op, before, right, values, nvseLogical);
             }
             return left;
         }
 
-        var expression = Read(-1);
-        if (at != tokens.Count)
+        var expression = Read(operandOnly ? 14 : -1);
+        if (!operandOnly && at != tokens.Count)
             throw new NotSupportedException("NVSE expression has an unbound operation.");
         // Parse the complete expression before invoking any stateful command
         // or assignment. Short-circuited branches never read or write state.
-        return expression.Value();
+        return (expression, at - start);
 
         bool CanStartOptionalArgument(string token, FalloutScriptArgumentKind required)
         {
@@ -169,12 +214,90 @@ internal static class FalloutNvseNumericExpression
             // not to the preceding optional integer index. This also keeps
             // `GetAuxVar "name" SomeReference` distinct from an index read.
             return required != FalloutScriptArgumentKind.Number || !Identifier(token) ||
-                function?.Invoke(token) is not null || values.Read(token).Kind != FalloutScriptValueKind.Form;
+                function?.Invoke(token) is not null || values.IsForm?.Invoke(token) != true;
         }
     }
 
-    private static bool Identifier(string token) => Regex.IsMatch(token,
-        @"^[A-Za-z_][A-Za-z0-9_.]*$", RegexOptions.CultureInvariant);
+    // Allocate evaluator captures only for nodes which actually need live
+    // evaluation. Literals/grouping and precedence lookahead carry values.
+    private static Operand Unary(string token, Operand operand, FalloutScriptValueContext values) => new(() =>
+    {
+        var value = operand.Value();
+        if (token is "-" or "+" && value.Kind == FalloutScriptValueKind.Array)
+            throw new InvalidDataException("Script arithmetic cannot use an array identity.");
+        return token.ToLowerInvariant() switch
+        {
+            "-" => Finite(-value.Number),
+            "+" => value.Number,
+            "!" => value.Truth ? 0 : 1,
+            _ => value.Stringize(values.FormName),
+        };
+    });
+
+    private static Operand Variable(string token, bool bareSourceName, FalloutScriptValueContext values) =>
+        new(() => bareSourceName ? values.ReadSourceString(token) : values.Read(token),
+            () => (() => values.Read(token), value => values.Write(token, value)));
+
+    private static Operand FunctionValue(FalloutScriptFunction command, IReadOnlyList<Func<FalloutScriptArgument>> arguments) =>
+        new(() => command.InvokeValue(arguments.Select(argument => argument()).ToArray()));
+
+    private static Operand ReferenceValue(FalloutScriptFunction command, IReadOnlyList<Func<FalloutScriptArgument>> arguments, Operand receiver) =>
+        new(() =>
+        {
+            var caller = receiver.Value();
+            // Validate the typed receiver before any stateful argument.
+            FalloutScriptFunction.RequireReference(caller);
+            return command.InvokeReferenceValue(caller, arguments.Select(argument => argument()).ToArray());
+        });
+
+    private static Operand Indexed(Operand container, Operand key, FalloutScriptValueContext values)
+    {
+        (Func<FalloutScriptValue> Read, Action<FalloutScriptValue> Write) Location()
+        {
+            var arrays = values.Arrays ?? throw new NotSupportedException("Indexed expression has no array owner.");
+            var arrayValue = container.Value();
+            var keyValue = key.Value();
+            return (() => arrays.Get(arrayValue, keyValue), value => arrays.Set(arrayValue, keyValue, value));
+        }
+        return new(() => Location().Read(), Location);
+    }
+
+    private static Operand Combine(string op, Operand before, Operand right, FalloutScriptValueContext values, bool nvseLogical)
+    {
+        if (IsAssignment(op))
+        {
+            var target = before.Target ?? throw new InvalidDataException(
+                "NVSE assignment needs a variable or indexed target.");
+            return new(() =>
+            {
+                var location = target();
+                var value = op is "=" or ":="
+                    ? right.Value()
+                    : Apply(op[..1], location.Read(), right.Value(), values.Arrays);
+                location.Write(value);
+                return value;
+            });
+        }
+        return new(() =>
+        {
+            var value = before.Value();
+            if (op == "||")
+                return nvseLogical
+                    ? value.Truth ? value.Logical : right.Value().Logical
+                    : value.Truth || right.Value().Truth ? 1 : 0;
+            if (op == "&&")
+                return nvseLogical
+                    ? value.Truth ? right.Value().Logical : 0
+                    : value.Truth && right.Value().Truth ? 1 : 0;
+            return Apply(op, value, right.Value(), values.Arrays);
+        });
+    }
+
+    // Owned editor IDs can start with digits. Keep the same complete token
+    // that the lexer retained; actual numeric literals still take precedence.
+    internal static bool Identifier(string token) => Regex.IsMatch(token,
+        @"^(?:[A-Za-z_$]|[0-9]+[A-Za-z_])[A-Za-z0-9_.]*$", RegexOptions.CultureInvariant) &&
+        token != "$" && (!char.IsAsciiDigit(token[0]) || !TryLiteral(token, out _));
 
     // Optional command arguments are whitespace-delimited in compiled source.
     // A bare prefix operator after the last required argument is therefore an
@@ -183,28 +306,42 @@ internal static class FalloutNvseNumericExpression
     private static bool CanStartOperand(string token) => token is "(" ||
         token.Equals("ToString", StringComparison.OrdinalIgnoreCase) ||
         token.Length >= 2 && token[0] == '"' && token[^1] == '"' ||
-        double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out _) ||
+        TryLiteral(token, out _) ||
         Identifier(token);
 
     private static int Priority(string op) => op switch
     {
         "=" or ":=" => 0,
         "||" => 1,
-        "&&" or "+=" or "-=" or "*=" or "/=" => 2,
+        "&&" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" => 2,
         "==" or "!=" => 4,
         "<" or ">" or "<=" or ">=" => 5,
+        "|" => 6,
+        "&" => 7,
+        "<<" or ">>" => 8,
         "+" or "-" => 9,
-        "*" or "/" => 10,
+        "*" or "/" or "%" => 10,
         _ => -1,
     };
 
-    private static FalloutScriptValue Apply(string op, FalloutScriptValue left, FalloutScriptValue right)
+    private static FalloutScriptValue Apply(string op, FalloutScriptValue left, FalloutScriptValue right,
+        FalloutScriptArrayStore? arrays)
     {
         if (op == "+" && left.Kind == FalloutScriptValueKind.String &&
             right.Kind == FalloutScriptValueKind.String)
             return FalloutScriptValue.String(left.Text + right.Text);
         if (op is "==" or "!=" or "<" or ">" or "<=" or ">=")
         {
+            if (op is "==" or "!=" && left.Kind == FalloutScriptValueKind.Array && right.Kind == FalloutScriptValueKind.Array)
+            {
+                var equal = (arrays ?? throw new NotSupportedException("Array comparison has no shared value owner.")).SurfaceEquals(left, right);
+                return equal == (op == "==") ? 1 : 0;
+            }
+            if ((left.Kind == FalloutScriptValueKind.Array || right.Kind == FalloutScriptValueKind.Array) &&
+                (op is not ("==" or "!=") ||
+                 left.Kind != right.Kind && !(left.Kind == FalloutScriptValueKind.Number && left.Number == 0 ||
+                     right.Kind == FalloutScriptValueKind.Number && right.Number == 0)))
+                throw new InvalidDataException("Script array comparison requires array identities or null.");
             var comparison = left.Kind == FalloutScriptValueKind.String &&
                 right.Kind == FalloutScriptValueKind.String
                 ? StringComparer.OrdinalIgnoreCase.Compare(left.Text, right.Text)
@@ -221,8 +358,26 @@ internal static class FalloutNvseNumericExpression
                 _ => comparison >= 0,
             }) ? 1 : 0;
         }
+        if (left.Kind == FalloutScriptValueKind.Array || right.Kind == FalloutScriptValueKind.Array)
+            throw new InvalidDataException("Script arithmetic cannot use an array identity.");
         var first = left.Number;
         var second = right.Number;
+        if (op is "%" or "&" or "|" or "<<" or ">>")
+        {
+            if (left.Kind != FalloutScriptValueKind.Number || right.Kind != FalloutScriptValueKind.Number)
+                throw new InvalidDataException("Script integer operators require numeric values.");
+            var integer = Integer(first);
+            var operand = Integer(second);
+            return op switch
+            {
+                "&" => integer & operand,
+                "|" => integer | operand,
+                "%" when operand != 0 && !(integer == long.MinValue && operand == -1) => integer % operand,
+                "<<" when operand is >= 0 and < 64 => unchecked(integer << (int)operand),
+                ">>" when operand is >= 0 and < 64 => integer >> (int)operand,
+                _ => throw new InvalidDataException("Script integer remainder or shift is undefined."),
+            };
+        }
         return op switch
         {
             "+" => Finite(first + second),
@@ -231,6 +386,35 @@ internal static class FalloutNvseNumericExpression
             "/" when second != 0 => Finite(first / second),
             _ => throw new NotSupportedException($"NVSE operator {op} is invalid or unbound."),
         };
+    }
+
+    private static long Integer(double value)
+    {
+        // NVSE 6.4.9 integer operators truncate numeric doubles to signed
+        // 64-bit values. Out-of-range conversions have no defined contract.
+        if (!double.IsFinite(value) || value is < -9223372036854775808d or >= 9223372036854775808d)
+            throw new InvalidDataException("Script integer operand is outside its defined range.");
+        return (long)value;
+    }
+
+    private static bool TryLiteral(string token, out double number)
+    {
+        if (!token.StartsWith("0b", StringComparison.Ordinal) && !token.StartsWith("0x", StringComparison.Ordinal))
+            return double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out number);
+        var radix = token[1] == 'b' ? 2u : 16u;
+        uint result = 0;
+        if (token.Length == 2) throw new InvalidDataException("Script based numeric literal has no digits.");
+        foreach (var digit in token.AsSpan(2))
+        {
+            var value = digit is >= '0' and <= '9' ? (uint)(digit - '0') :
+                digit is >= 'a' and <= 'f' ? (uint)(digit - 'a' + 10) :
+                digit is >= 'A' and <= 'F' ? (uint)(digit - 'A' + 10) : uint.MaxValue;
+            if (value >= radix || result > (uint.MaxValue - value) / radix)
+                throw new InvalidDataException("Script based numeric literal is invalid or exceeds 32 bits.");
+            result = result * radix + value;
+        }
+        number = result;
+        return true;
     }
 
     private static double Finite(double value) => double.IsFinite(value) ? value :

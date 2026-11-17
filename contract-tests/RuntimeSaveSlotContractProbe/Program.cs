@@ -70,7 +70,46 @@ try
         native.ReadSlots(true).Count != 2)
         throw new InvalidOperationException("Native metadata/current save did not survive the catalog.");
 
-    Console.WriteLine("OPENNV_RUNTIME_SAVE_SLOT_PASS classic=true native=true select=true preserveContinue=true malformedIsolated=true metadata=actual-save");
+    var backup = Path.Combine(directory, "campaign-transfer.zip");
+    native.ExportBackup(backup);
+    var importedPath = Path.Combine(directory, "imported-native.json");
+    var imported = new RuntimeSaveSlotCatalog(importedPath, root =>
+    {
+        if (root.GetProperty("Schema").GetString() != "opennv-native-fnv-campaign-save/v18")
+            throw new InvalidDataException("Imported native schema differs.");
+    });
+    File.WriteAllText(importedPath, JsonSerializer.Serialize(new
+    {
+        Schema = "opennv-native-fnv-campaign-save/v18",
+        PlayerName = "Keep This State",
+        ActiveCell = new { OwnerPlugin = "Source.esm", ObjectId = 0x123u },
+        Vitals = new { HitPoints = 9 },
+    }));
+    var importedCount = imported.ImportBackup(backup);
+    var importedCurrent = imported.ReadSlots(includeCurrent: true).Single(slot => slot.Id == "current");
+    if (importedCount != 0 || importedCurrent.CharacterName != "Courier" ||
+        !imported.ReadSlots().Any(slot => slot.CharacterName == "Keep This State"))
+        throw new InvalidOperationException("Save transfer failed or did not preserve the previous Continue state.");
+
+    var corruptBackup = Path.Combine(directory, "corrupt-transfer.zip");
+    File.Copy(backup, corruptBackup);
+    var beforeRejectedImport = File.ReadAllBytes(importedPath);
+    using (var corrupt = new System.IO.Compression.ZipArchive(
+        File.Open(corruptBackup, FileMode.Open, FileAccess.ReadWrite), System.IO.Compression.ZipArchiveMode.Update))
+    {
+        var currentEntry = corrupt.GetEntry("current.json")!;
+        currentEntry.Delete();
+    }
+    try
+    {
+        imported.ImportBackup(corruptBackup);
+        throw new InvalidOperationException("Backup without current save was accepted.");
+    }
+    catch (InvalidDataException) { }
+    if (!File.ReadAllBytes(importedPath).SequenceEqual(beforeRejectedImport))
+        throw new InvalidOperationException("Rejected backup changed the active save.");
+
+    Console.WriteLine("OPENNV_RUNTIME_SAVE_SLOT_PASS classic=true native=true select=true preserveContinue=true malformedIsolated=true metadata=actual-save transfer=roundtrip preservePrevious=true rejectCorrupt=true");
 }
 finally
 {

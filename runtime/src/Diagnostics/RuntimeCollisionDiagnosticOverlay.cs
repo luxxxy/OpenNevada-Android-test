@@ -1,0 +1,290 @@
+using Godot;
+using OpenNV.Runtime.Presentation.Rendering;
+
+namespace OpenNV.Runtime.Diagnostics;
+
+// On-device report for diagnosing a missing landscape floor without ADB.
+internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
+{
+    private Label _report = null!;
+    private Button _copy = null!;
+    private Button _shadows = null!;
+    private readonly Queue<string> _inputEvents = new();
+    private string _lastInput = "none";
+    private long _lastFramesDrawn;
+    private double _elapsed;
+
+    public override void _Ready()
+    {
+        Layer = 210;
+        ProcessMode = ProcessModeEnum.Always;
+        var panel = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Stop };
+        AddChild(panel);
+        panel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopLeft);
+        panel.OffsetLeft = 12;
+        panel.OffsetTop = 12;
+        panel.OffsetRight = 452;
+        panel.OffsetBottom = 438;
+        var style = new StyleBoxFlat { BgColor = new Color(0, 0, 0, .88f) };
+        style.SetContentMarginAll(10);
+        panel.AddThemeStyleboxOverride("panel", style);
+        var column = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Pass };
+        panel.AddChild(column);
+        var heading = new Label { Text = "OPENNV COLLISION DIAGNOSTICS", MouseFilter = Control.MouseFilterEnum.Ignore };
+        heading.AddThemeFontSizeOverride("font_size", 14);
+        column.AddChild(heading);
+        _report = new Label
+        {
+            Text = "Waiting for world and player…",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        _report.AddThemeFontSizeOverride("font_size", 11);
+        var scroll = new ScrollContainer { CustomMinimumSize = new Vector2(0, 304), SizeFlagsVertical = Control.SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        column.AddChild(scroll);
+        _report.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        scroll.AddChild(_report);
+        _shadows = new Button { Text = "SUN SHADOWS: ON (TAP TO DISABLE)", CustomMinimumSize = new Vector2(0, 32) };
+        _shadows.Pressed += () => RuntimeSunShadows.Set(RuntimeSunShadows.Cascades == 0 ? 4 : 0);
+        column.AddChild(_shadows);
+        _copy = new Button { Text = "COPY REPORT", CustomMinimumSize = new Vector2(0, 32) };
+        _copy.Pressed += () => DisplayServer.ClipboardSet(_report.Text);
+        column.AddChild(_copy);
+        var clear = new Button { Text = "CLEAR INPUT HISTORY", CustomMinimumSize = new Vector2(0, 32) };
+        clear.Pressed += () => { _inputEvents.Clear(); _lastInput = "cleared"; };
+        column.AddChild(clear);
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        if (@event is InputEventScreenTouch touch)
+            _lastInput = $"SCREEN_TOUCH index={touch.Index} pressed={touch.Pressed} pos={touch.Position}";
+        else if (@event is InputEventScreenDrag drag)
+            _lastInput = $"SCREEN_DRAG index={drag.Index} pos={drag.Position} relative={drag.Relative}";
+        else if (@event is InputEventMouseButton mouse)
+            _lastInput = $"MOUSE_BUTTON button={mouse.ButtonIndex} pressed={mouse.Pressed} pos={mouse.Position}";
+        else if (@event is InputEventMouseMotion motion)
+            _lastInput = $"MOUSE_MOTION pos={motion.Position} relative={motion.Relative}";
+        else
+            _lastInput = @event.GetType().Name;
+        _inputEvents.Enqueue($"{Time.GetTicksMsec()}ms {_lastInput}");
+        while (_inputEvents.Count > 24) _inputEvents.Dequeue();
+    }
+
+    public override void _Process(double delta)
+    {
+        _elapsed += delta;
+        if (_elapsed < .5) return;
+        _elapsed = 0;
+        _report.Text = BuildReport();
+        _shadows.Text = RuntimeSunShadows.Cascades == 0 ? "SUN SHADOWS: OFF (TAP TO RESTORE)" : $"SUN SHADOWS: ON ({RuntimeSunShadows.Cascades} CASCADES; TAP TO DISABLE)";
+    }
+
+    private string BuildReport()
+    {
+        var framesDrawn = Engine.GetFramesDrawn();
+        var frameDelta = _lastFramesDrawn == 0 ? 0 : framesDrawn - _lastFramesDrawn;
+        _lastFramesDrawn = framesDrawn;
+        var viewport = GetViewport();
+        var lines = new List<string>
+        {
+            $"DEVICE: OS={OS.GetName()} model={OS.GetModelName()} screen={DisplayServer.WindowGetSize()} viewport={viewport.GetVisibleRect().Size}",
+            $"PERFORMANCE: FPS={Engine.GetFramesPerSecond()} frameDelta={frameDelta} frames/0.5s processDelta={_elapsed:F3}s timeScale={Engine.TimeScale:F2}",
+            $"INPUT: last={_lastInput} eventsBuffered={_inputEvents.Count}",
+            $"Physics: {ProjectSettings.GetSetting("physics/3d/physics_engine", "unknown").AsString()}",
+            $"Frames: {Engine.GetFramesPerSecond()} FPS",
+            $"Sun shadows: {(RuntimeSunShadows.Cascades == 0 ? "OFF" : $"ON ({RuntimeSunShadows.Cascades} cascades)")}"
+        };
+        var nodes = Descendants(GetTree().Root).ToArray();
+        var cellRoots = nodes.OfType<Node3D>()
+            .Where(node => node.HasMeta("opennv_land_candidate_meshes") ||
+                node.Name.ToString().StartsWith("CELL_", StringComparison.OrdinalIgnoreCase) || node.Name.ToString().StartsWith("NativeCell_", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (cellRoots.Length == 0)
+            lines.Add("CELL ROOTS: none found");
+        foreach (var cell in cellRoots)
+        {
+            var hasLandMeta = cell.HasMeta("opennv_land_candidate_meshes");
+            var candidates = hasLandMeta ? cell.GetMeta("opennv_land_candidate_meshes").AsInt32() : -1;
+            var requested = hasLandMeta && cell.GetMeta("opennv_land_collision_requested").AsBool();
+            var created = hasLandMeta && cell.GetMeta("opennv_land_collision_created").AsBool();
+            var cellNodes = Descendants(cell).ToArray();
+            var cellMeshes = cellNodes.OfType<MeshInstance3D>().ToArray();
+            var landMeshes = cellMeshes.Where(mesh => mesh.Name.ToString().Contains("land", StringComparison.OrdinalIgnoreCase) || mesh.GetPath().ToString().Contains("/LAND", StringComparison.OrdinalIgnoreCase)).ToArray();
+            lines.Add($"  subtree meshes={cellMeshes.Length} static={cellNodes.OfType<StaticBody3D>().Count()} rigid={cellNodes.OfType<RigidBody3D>().Count()} LAND-named={landMeshes.Length}");
+            var playerForMeshes = nodes.OfType<CharacterBody3D>().FirstOrDefault();
+            var inspectedMeshes = landMeshes.Length > 0 ? landMeshes : cellMeshes;
+            if (playerForMeshes is not null)
+                inspectedMeshes = inspectedMeshes.OrderBy(mesh => mesh.GlobalPosition.DistanceTo(playerForMeshes.GlobalPosition)).ToArray();
+            foreach (var mesh in inspectedMeshes.Take(8))
+            {
+                var bounds = mesh.GetAabb();
+                var center = mesh.ToGlobal(bounds.Position + bounds.Size * 0.5f);
+                lines.Add($"  MESH {mesh.Name} center={Vec(center)} size={Vec(bounds.Size)}");
+            }
+            var landBody = Descendants(cell).OfType<StaticBody3D>()
+                .FirstOrDefault(body => body.Name == "LAND_ACTIVE_SET_COLLISION");
+            var shape = landBody is null ? null : Descendants(landBody).OfType<CollisionShape3D>().FirstOrDefault();
+            lines.Add(hasLandMeta
+                ? $"CELL {cell.Name}: LAND meshes={candidates}, requested={requested}, created={created}"
+                : $"CELL {cell.Name}: LAND metadata MISSING");
+            lines.Add(landBody is null
+                ? "  LAND body: MISSING"
+                : $"  LAND body: layer={landBody.CollisionLayer}, pos={Vec(landBody.GlobalPosition)}, scale={Vec(landBody.GlobalBasis.Scale)}");
+            lines.Add(shape is null
+                ? "  LAND shape: MISSING"
+                : $"  LAND shape: {shape.Shape?.GetType().Name ?? "null"}, disabled={shape.Disabled}");
+            if (landBody is not null && landBody.HasMeta("opennv_land_triangles"))
+                lines.Add($"  LAND triangles={landBody.GetMeta("opennv_land_triangles").AsInt32()}");
+        }
+
+        var players = nodes.OfType<CharacterBody3D>()
+            .Where(body => body.Name.ToString().Contains("Player", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (players.Length == 0)
+            lines.Add("Player CharacterBody3D: NOT FOUND");
+        foreach (var player in players)
+        {
+            lines.Add($"PLAYER {player.Name}: pos={Vec(player.GlobalPosition)} vel={Vec(player.Velocity)}");
+            lines.Add($"  mask={player.CollisionMask} layer={player.CollisionLayer} onFloor={player.IsOnFloor()} contacts={player.GetSlideCollisionCount()}");
+            var from = player.GlobalPosition + Vector3.Up * 2.0f;
+            var to = player.GlobalPosition - Vector3.Up * 40.0f;
+            var query = PhysicsRayQueryParameters3D.Create(from, to, player.CollisionMask);
+            query.Exclude = new Godot.Collections.Array<Rid> { player.GetRid() };
+            query.CollideWithAreas = false;
+            query.CollideWithBodies = true;
+            var hit = player.GetWorld3D().DirectSpaceState.IntersectRay(query);
+            if (hit.Count == 0)
+                lines.Add("  DOWN RAY (player mask): NO HIT (42m)");
+            else
+            {
+                var collider = hit["collider"].AsGodotObject() as Node;
+                var point = hit["position"].AsVector3();
+                lines.Add($"  DOWN RAY (player mask): HIT {collider?.GetPath().ToString() ?? "unknown"} at {Vec(point)}");
+            }
+
+            var allLayersQuery = PhysicsRayQueryParameters3D.Create(from, to, uint.MaxValue);
+            allLayersQuery.Exclude = new Godot.Collections.Array<Rid> { player.GetRid() };
+            allLayersQuery.CollideWithAreas = false;
+            allLayersQuery.CollideWithBodies = true;
+            var longQuery = PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 1500.0f, player.GlobalPosition - Vector3.Up * 1500.0f, uint.MaxValue);
+            longQuery.Exclude = new Godot.Collections.Array<Rid> { player.GetRid() };
+            longQuery.CollideWithAreas = false;
+            longQuery.CollideWithBodies = true;
+            var longHit = player.GetWorld3D().DirectSpaceState.IntersectRay(longQuery);
+            lines.Add(longHit.Count == 0 ? "LONG VERTICAL RAY: NO HIT (3000m)" : "LONG VERTICAL RAY: HIT at " + Vec(longHit["position"].AsVector3()));
+            var allLayersHit = player.GetWorld3D().DirectSpaceState.IntersectRay(allLayersQuery);
+            if (allLayersHit.Count == 0)
+                lines.Add("  DOWN RAY (all layers): NO HIT (42m)");
+            else
+            {
+                var collider = allLayersHit["collider"].AsGodotObject() as CollisionObject3D;
+                var point = allLayersHit["position"].AsVector3();
+                lines.Add($"  DOWN RAY (all layers): HIT {collider?.Name} layer={collider?.CollisionLayer} at {Vec(point)}");
+            }
+        }
+
+        var allMeshes = nodes.OfType<MeshInstance3D>().Where(mesh => mesh.Mesh is not null).ToArray();
+        var renderMeshes = allMeshes.Where(mesh => mesh.IsVisibleInTree()).ToArray();
+        lines.Add($"RENDER DETAIL: meshes={allMeshes.Length}, visibleInTree={renderMeshes.Length}, hidden={allMeshes.Length-renderMeshes.Length}, cameras={nodes.OfType<Camera3D>().Count()}, directionalLights={nodes.OfType<DirectionalLight3D>().Count()}, omniLights={nodes.OfType<OmniLight3D>().Count()}, spotLights={nodes.OfType<SpotLight3D>().Count()}, worlds={nodes.OfType<WorldEnvironment>().Count()}");
+        var activeMaterials = renderMeshes.Select(mesh => mesh.GetActiveMaterial(0)).Where(material => material is not null).ToArray();
+        lines.Add($"RENDER: visibleMeshes={renderMeshes.Length}, materials={activeMaterials.Length}, shader={activeMaterials.OfType<ShaderMaterial>().Count()}, standard={activeMaterials.OfType<StandardMaterial3D>().Count()}, other={activeMaterials.Count(material => material is not ShaderMaterial && material is not StandardMaterial3D)}");
+        var renderPlayer = nodes.OfType<CharacterBody3D>().FirstOrDefault();
+        var nearbyMeshes = renderPlayer is null
+            ? renderMeshes.Take(32).ToArray()
+            : renderMeshes.OrderBy(mesh => mesh.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition)).Take(32).ToArray();
+        lines.Add($"NEARBY RENDER GEOMETRY: sampled={nearbyMeshes.Length} (closest to player)");
+        foreach (var mesh in nearbyMeshes)
+        {
+            var surfaceCount = mesh.Mesh?.GetSurfaceCount() ?? 0;
+            var bounds = mesh.GetAabb();
+            var worldCenter = mesh.ToGlobal(bounds.Position + bounds.Size * 0.5f);
+            var distance = renderPlayer is null ? -1f : mesh.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition);
+            lines.Add($"  GEO {mesh.GetPath()}: dist={distance:F2} center={Vec(worldCenter)} size={Vec(bounds.Size)} visible={mesh.IsVisibleInTree()} shadows={mesh.CastShadow} surfaces={surfaceCount} meshType={mesh.Mesh?.GetClass()}");
+            for (var surface = 0; surface < surfaceCount; surface++)
+            {
+                var material = mesh.GetActiveMaterial(surface);
+                var materialName = material is null ? "NONE" : $"{material.GetType().Name}:{material.ResourceName}";
+                var meta = material is not null && material.HasMeta("opennv_nif_material_fallback")
+                    ? $" fallback={material.GetMeta("opennv_nif_material_fallback").AsString()}"
+                    : string.Empty;
+                var arrays = mesh.Mesh!.SurfaceGetArrays(surface);
+                var vertexCount = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array().Length;
+                var indexVariant = arrays[(int)Mesh.ArrayType.Index];
+                var indexCount = indexVariant.VariantType == Variant.Type.PackedInt32Array
+                    ? indexVariant.AsInt32Array().Length : 0;
+                var normalVariant = arrays[(int)Mesh.ArrayType.Normal];
+                var uvVariant = arrays[(int)Mesh.ArrayType.TexUV];
+                var normalCount = normalVariant.VariantType == Variant.Type.PackedVector3Array
+                    ? normalVariant.AsVector3Array().Length : 0;
+                var uvCount = uvVariant.VariantType == Variant.Type.PackedVector2Array
+                    ? uvVariant.AsVector2Array().Length : 0;
+                lines.Add($"    SURFACE {surface}: vertices={vertexCount} indices={indexCount} triangles={indexCount / 3} normals={normalCount} uvs={uvCount} material={materialName}{meta}");
+                if (material is ShaderMaterial shaderMaterial && shaderMaterial.Shader is Shader shader)
+                    lines.Add($"      SHADER: codeLength={shader.Code.Length} resource={shader.ResourcePath}");
+                else if (material is StandardMaterial3D standard)
+                    lines.Add($"      STANDARD: albedo={standard.AlbedoColor} texture={(standard.AlbedoTexture is null ? "none" : standard.AlbedoTexture.GetClass().ToString())} cull={standard.CullMode}");
+            }
+            foreach (var key in new[] { "opennv_source", "opennv_nif_material_fallback", "opennv_nif_shader_flags", "opennv_land_render_status" })
+                if (mesh.HasMeta(key)) lines.Add($"      META {key}={mesh.GetMeta(key).ToString()}");
+        }
+        var nearbyLights = nodes.OfType<OmniLight3D>()
+            .Where(light => renderPlayer is null || light.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition) < 25f)
+            .OrderBy(light => renderPlayer is null ? 0f : light.GlobalPosition.DistanceTo(renderPlayer.GlobalPosition))
+            .Take(12);
+        foreach (var light in nearbyLights)
+            lines.Add($"  LIGHT {light.GetPath()}: pos={Vec(light.GlobalPosition)} range={light.OmniRange:F2} energy={light.LightEnergy:F2} shadows={light.ShadowEnabled} visible={light.IsVisibleInTree()}");
+        var staticBodies = nodes.OfType<StaticBody3D>().ToArray();
+        var shapes = nodes.OfType<CollisionShape3D>().ToArray();
+        var layerSummary = staticBodies
+            .GroupBy(body => body.CollisionLayer)
+            .OrderBy(group => group.Key)
+            .Select(group => $"{group.Key}:{group.Count()}");
+        lines.Add($"StaticBody layers: {(layerSummary.Any() ? string.Join(", ", layerSummary) : "none")}");
+        lines.Add($"Scene totals: staticBodies={staticBodies.Length}, collisionShapes={shapes.Length}, meshes={nodes.OfType<MeshInstance3D>().Count()}");
+        var diagnosticPlayer = nodes.OfType<CharacterBody3D>().FirstOrDefault();
+        var orderedStaticBodies = diagnosticPlayer is null
+            ? staticBodies
+            : staticBodies.OrderBy(body => body.GlobalPosition.DistanceTo(diagnosticPlayer.GlobalPosition)).ToArray();
+        foreach (var body in orderedStaticBodies.Take(16))
+        {
+            var bodyShapes = Descendants(body).OfType<CollisionShape3D>().ToArray();
+            lines.Add($"BODY {body.GetPath()} layer={body.CollisionLayer} mask={body.CollisionMask} pos={Vec(body.GlobalPosition)} shapes={bodyShapes.Length}");
+            foreach (var shapeNode in bodyShapes.Take(3))
+            {
+                var shape = shapeNode.Shape;
+                var bounds = shape?.GetDebugMesh()?.GetAabb();
+                var worldCenter = bounds is { } box
+                    ? shapeNode.ToGlobal(box.Position + box.Size * 0.5f)
+                    : shapeNode.GlobalPosition;
+                lines.Add($"  SHAPE {shape?.GetType().Name ?? "null"} disabled={shapeNode.Disabled} center={Vec(worldCenter)}");
+            }
+        }
+        var rigidBodies = nodes.OfType<RigidBody3D>().ToArray();
+        lines.Add($"RigidBodies={rigidBodies.Length}");
+        foreach (var body in rigidBodies.Take(8))
+            lines.Add($"RIGID {body.Name} layer={body.CollisionLayer} mask={body.CollisionMask} pos={Vec(body.GlobalPosition)}");
+        var sceneNames = GetTree().CurrentScene?.GetChildren()
+            .Select(node => node.Name.ToString()).Take(20).ToArray() ?? Array.Empty<string>();
+        lines.Add($"ROOT CHILDREN: {(sceneNames.Length == 0 ? "none" : string.Join(", ", sceneNames))}");
+        lines.Add("INPUT HISTORY (newest last):");
+        foreach (var entry in _inputEvents) lines.Add("  " + entry);
+        return string.Join("\n", lines);
+    }
+
+    private static IEnumerable<Node> Descendants(Node root)
+    {
+        var pending = new Stack<Node>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            yield return current;
+            foreach (var child in current.GetChildren())
+                pending.Push(child);
+        }
+    }
+
+    private static string Vec(Vector3 value) =>
+        $"({value.X:F2}, {value.Y:F2}, {value.Z:F2})";
+}

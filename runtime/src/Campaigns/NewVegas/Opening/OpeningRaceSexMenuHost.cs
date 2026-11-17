@@ -76,11 +76,15 @@ internal sealed class OpeningRaceSexMenuHost
             backgroundTexture,
             Layout(source.Background.Tile, source.Background.Rect));
         root.AddChild(backgroundTexture);
+        // Shared-control bounds and row positions are relative to the
+        // RaceSexMenu panel, not to the full screen canvas. The presentation
+        // host cancels the panel origin at its parent, so restore that origin
+        // here before applying the panel-relative row coordinates.
         _content = new Control
         {
             Name = "OwnedRaceSexActiveList",
-            Position = source.Background.Rect.Position,
-            Size = source.Background.Rect.Size,
+            Position = source.SharedControls.BackgroundRect.Position,
+            Size = root.Size,
             MouseFilter = Control.MouseFilterEnum.Pass,
         };
         root.AddChild(_content);
@@ -159,6 +163,7 @@ internal sealed class OpeningRaceSexMenuHost
         var entry = _listEntries.SingleOrDefault(value => value.Key == key) ??
             throw new InvalidOperationException(
                 $"Owned RaceSexMenu list entry is unavailable: {key}");
+        GD.Print($"OPENNV_RACESEX_ACTION list key={key} label={entry.Label}");
         entry.Activate();
     }
 
@@ -167,7 +172,9 @@ internal sealed class OpeningRaceSexMenuHost
         var entry = _sliderEntries.SingleOrDefault(item => item.Key == key) ??
             throw new InvalidOperationException(
                 $"Owned RaceSexMenu slider entry is unavailable: {key}");
-        entry.SetValue(Mathf.Clamp(value, entry.Minimum, entry.Maximum));
+        var clamped = Mathf.Clamp(value, entry.Minimum, entry.Maximum);
+        GD.Print($"OPENNV_RACESEX_ACTION slider key={key} requested={value:R} applied={clamped:R}");
+        entry.SetValue(clamped);
     }
 
     internal void PressBack() => _back.EmitSignal(BaseButton.SignalName.Pressed);
@@ -225,10 +232,21 @@ internal sealed class OpeningRaceSexMenuHost
         else
             RenderSliderRows(capacity);
         _visibleEntryCount = Math.Min(capacity, count - _scrollOffset);
+        var firstRow = _content.GetChildren().OfType<Control>()
+            .FirstOrDefault(child =>
+                child.Name.ToString().StartsWith("OwnedRaceSexSlider_", StringComparison.Ordinal) ||
+                child.Name.ToString().StartsWith("OwnedRaceSexList_", StringComparison.Ordinal));
         GD.Print(
-            "OPENNV_NEW_GAME_RACESEX_ACTIVE_LIST " +
-            $"user0={_activeList} first={_scrollOffset} " +
-            $"visible={_visibleEntryCount} total={count} " +
+            "OPENNV_NEW_GAME_RACESEX_LAYOUT_DIAG " +
+            $"page={_activeList} first={_scrollOffset} visible={_visibleEntryCount} total={count} " +
+            $"rootPos={_root.Position} rootSize={_root.Size} rootGlobal={_root.GetGlobalRect()} " +
+            $"contentPos={_content.Position} contentSize={_content.Size} contentGlobal={_content.GetGlobalRect()} " +
+            $"backgroundRect={_source.SharedControls.BackgroundRect} " +
+            $"listRect={_source.SharedControls.List.Rect} sliderRect={_source.SharedControls.Slider.Rect} " +
+            $"top={_source.SharedControls.TopBound:R} bottom={_source.SharedControls.BottomBound:R} " +
+            $"firstRow={(firstRow is null ? "none" : firstRow.Name)} " +
+            $"firstRowPos={(firstRow is null ? Vector2.Zero : firstRow.Position)} " +
+            $"firstRowGlobal={(firstRow is null ? new Rect2() : firstRow.GetGlobalRect())} " +
             $"rowHeight={(_listEntries.Count > 0 ? _source.ListItem.Rect.Size.Y : _source.Slider.Rect.Size.Y):R}");
     }
 
@@ -246,7 +264,11 @@ internal sealed class OpeningRaceSexMenuHost
                         slot * _source.SharedControls.List.Rect.Size.Y,
                     _source.SharedControls.List.Rect.Size);
             if (entry.Selectable)
-                row.Pressed += entry.Activate;
+                row.Pressed += () =>
+                {
+                    GD.Print($"OPENNV_RACESEX_ACTION list-pressed key={entry.Key} label={entry.Label}");
+                    entry.Activate();
+                };
             else
             {
                 row.FocusMode = Control.FocusModeEnum.None;
@@ -357,11 +379,15 @@ internal sealed class OpeningRaceSexMenuHost
                 brightness: template.Brightness);
             left.Pressed += () =>
             {
-                entry.SetValue(Mathf.Max(entry.Minimum, entry.Value - entry.Increment));
+                var next = Mathf.Max(entry.Minimum, entry.Value - entry.Increment);
+                GD.Print($"OPENNV_RACESEX_ACTION slider-left key={entry.Key} before={entry.Value:R} after={next:R}");
+                entry.SetValue(next);
             };
             right.Pressed += () =>
             {
-                entry.SetValue(Mathf.Min(entry.Maximum, entry.Value + entry.Increment));
+                var next = Mathf.Min(entry.Maximum, entry.Value + entry.Increment);
+                GD.Print($"OPENNV_RACESEX_ACTION slider-right key={entry.Key} before={entry.Value:R} after={next:R}");
+                entry.SetValue(next);
             };
             row.AddChild(left);
             row.AddChild(right);
