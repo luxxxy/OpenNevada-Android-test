@@ -208,7 +208,6 @@ internal sealed class OpeningRaceSexRenderedDeviceHost
     {
         if (_touchDebugFeed is null) return;
         _touchDebugFeed.Text = string.Join("\n", _touchDebugEvents);
-        _touchDebugFeed.ScrollToLine(Math.Max(0, _touchDebugFeed.GetLineCount() - 1));
     }
 
     internal void SetActiveList(string activeList)
