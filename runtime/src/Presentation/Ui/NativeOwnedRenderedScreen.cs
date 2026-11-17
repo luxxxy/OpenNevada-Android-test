@@ -25,6 +25,7 @@ internal sealed partial class NativeOwnedRenderedScreen : Node
     }
     internal SubViewport ContentView { get; }
     internal NativeOwnedRaceSexMenu Menu { get; }
+    internal event Action<string>? TouchDiagnostic;
 
     internal NativeOwnedRenderedScreen(NativeOwnedRenderedDevice device, FalloutPluginStack records,
         FalloutInstallationSettings settings, Action<Exception> failed)
@@ -119,24 +120,85 @@ internal sealed partial class NativeOwnedRenderedScreen : Node
     {
         var focus = GetViewport().GuiGetFocusOwner();
         var externalFocus = focus is not null && _externalControls.Any(control => control == focus || control.IsAncestorOf(focus));
-        if (input is InputEventMouse pointer)
+        var isTouch = input is InputEventScreenTouch or InputEventScreenDrag;
+        var pointerPosition = input switch
         {
-            if (_externalControls.Any(control => control.Visible && control.GetGlobalRect().HasPoint(pointer.Position))) return;
-            if (externalFocus && input is InputEventMouseButton { Pressed: true }) GetViewport().GuiReleaseFocus();
+            InputEventMouse mouseInput => mouseInput.Position,
+            InputEventScreenTouch touchInput => touchInput.Position,
+            InputEventScreenDrag dragInput => dragInput.Position,
+            _ => Vector2.Zero,
+        };
+        var isActivation = input is InputEventMouseButton { Pressed: true } or InputEventScreenTouch { Pressed: true };
+        if (input is InputEventMouse || isTouch)
+        {
+            if (_externalControls.Any(control => control.Visible && control.GetGlobalRect().HasPoint(pointerPosition)))
+            {
+                TouchDiagnostic?.Invoke($"INPUT type={input.GetType().Name} pos={pointerPosition} target=external-control");
+                return;
+            }
+            if (externalFocus && isActivation) GetViewport().GuiReleaseFocus();
         }
         else if (externalFocus) return;
+
         if (input is InputEventKey or InputEventJoypadButton or InputEventJoypadMotion)
         {
-            ContentView.PushInput(input, true); GetViewport().SetInputAsHandled(); return;
+            TouchDiagnostic?.Invoke($"INPUT type={input.GetType().Name} focus={focus?.Name.ToString() ?? "none"} route=keyboard/gamepad");
+            ContentView.PushInput(input, true);
+            GetViewport().SetInputAsHandled();
+            return;
         }
-        if (input is not InputEventMouse mouse) return;
-        var point = SourcePoint(mouse.Position - _device.GlobalPosition);
-        using var copy = (InputEventMouse)mouse.Duplicate();
-        var position = point is { } canvas ? canvas * new Vector2(ContentView.Size.X / 1280f, ContentView.Size.Y / 960f) : new Vector2(-1, -1);
+
+        if (input is InputEventMouse mouse)
+        {
+            if (mouse is InputEventMouseMotion && mouse.ButtonMask == MouseButtonMask.None) return;
+            DispatchPointer(mouse.Position, mouse);
+            return;
+        }
+        if (input is InputEventScreenTouch touch)
+        {
+            var mouse = new InputEventMouseButton
+            {
+                Position = touch.Position,
+                GlobalPosition = touch.Position,
+                ButtonIndex = MouseButton.Left,
+                Pressed = touch.Pressed,
+                ButtonMask = touch.Pressed ? MouseButtonMask.Left : MouseButtonMask.None,
+                Device = touch.Device,
+                DoubleClick = false,
+            };
+            DispatchPointer(touch.Position, mouse);
+            return;
+        }
+        if (input is InputEventScreenDrag drag)
+        {
+            var mouse = new InputEventMouseMotion
+            {
+                Position = drag.Position,
+                GlobalPosition = drag.Position,
+                Relative = drag.Relative,
+                ButtonMask = MouseButtonMask.Left,
+                Device = drag.Device,
+            };
+            DispatchPointer(drag.Position, mouse);
+        }
+    }
+
+    private void DispatchPointer(Vector2 viewportPosition, InputEventMouse source)
+    {
+        var localPosition = viewportPosition - _device.GlobalPosition;
+        var point = SourcePoint(localPosition);
+        var position = point is { } canvas
+            ? canvas * new Vector2(ContentView.Size.X / 1280f, ContentView.Size.Y / 960f)
+            : new Vector2(-1, -1);
+        using var copy = (InputEventMouse)source.Duplicate();
         copy.Position = copy.GlobalPosition = position;
-        if (copy is InputEventMouseMotion motion) motion.Relative = _lastPointer is { } previous ? position - previous : Vector2.Zero;
+        if (copy is InputEventMouseMotion motion)
+            motion.Relative = _lastPointer is { } previous ? position - previous : Vector2.Zero;
         _lastPointer = position;
-        ContentView.PushInput(copy, true); GetViewport().SetInputAsHandled();
+        var focus = GetViewport().GuiGetFocusOwner();
+        TouchDiagnostic?.Invoke($"DISPATCH type={source.GetType().Name} viewport={viewportPosition} local={localPosition} mapped={position} hit={(point is not null)} focus={focus?.Name.ToString() ?? "none"}");
+        ContentView.PushInput(copy, true);
+        GetViewport().SetInputAsHandled();
     }
 
     private System.Numerics.Vector4 SampleEffect(int sampler, System.Numerics.Vector2 coordinate)
