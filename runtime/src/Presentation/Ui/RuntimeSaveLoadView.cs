@@ -17,6 +17,7 @@ internal static class RuntimeSaveLoadViewNumericContracts
 internal sealed partial class RuntimeSaveLoadView : CanvasLayer
 {
     private readonly ItemList _slots = new();
+    private readonly Label _backupStatus = new();
     private RuntimeSaveSlotCatalog _catalog = null!;
     private Action? _save;
     private IReadOnlyList<RuntimeSaveSlotMetadata> _metadata = Array.Empty<RuntimeSaveSlotMetadata>();
@@ -70,6 +71,17 @@ internal sealed partial class RuntimeSaveLoadView : CanvasLayer
         load.Name = "LoadSelectedAuthoritativeSaveSlot";
         load.Pressed += LoadSelected;
         stack.AddChild(load);
+        var export = Button("EXPORT BACKUP");
+        export.Name = "ExportCampaignSaveBackup";
+        export.Pressed += ExportBackup;
+        stack.AddChild(export);
+        var import = Button("IMPORT LATEST BACKUP");
+        import.Name = "ImportCampaignSaveBackup";
+        import.Pressed += ImportLatestBackup;
+        stack.AddChild(import);
+        _backupStatus.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _backupStatus.AddThemeFontSizeOverride("font_size", 13);
+        stack.AddChild(_backupStatus);
         var done = Button("DONE");
         done.Pressed += Dismiss;
         stack.AddChild(done);
@@ -109,6 +121,63 @@ internal sealed partial class RuntimeSaveLoadView : CanvasLayer
             "Save creation is not available without an active authoritative session."));
         Refresh();
         return slot;
+    }
+
+    private static string BackupDirectory()
+    {
+        var root = OS.GetName() == "Android"
+            ? "/storage/emulated/0/Documents"
+            : System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrWhiteSpace(root))
+            root = ProjectSettings.GlobalizePath("user://");
+        return Path.Combine(root, "OpenNV-Backups");
+    }
+
+    private void ExportBackup()
+    {
+        try
+        {
+            var directory = BackupDirectory();
+            Directory.CreateDirectory(directory);
+            var fileName = "opennv-save-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + ".zip";
+            var path = Path.Combine(directory, fileName);
+            _catalog.ExportBackup(path);
+            _backupStatus.Text = "Backup exported: " + path;
+            _backupStatus.AddThemeColorOverride("font_color", new Color(0.47f, 0.84f, 0.62f));
+        }
+        catch (Exception exception)
+        {
+            _backupStatus.Text = "Backup export failed: " + exception.Message;
+            _backupStatus.AddThemeColorOverride("font_color", new Color(0.86f, 0.61f, 0.33f));
+        }
+    }
+
+    private void ImportLatestBackup()
+    {
+        try
+        {
+            var directory = BackupDirectory();
+            var latest = Directory.Exists(directory)
+                ? Directory.EnumerateFiles(directory, "opennv-save-*.zip", SearchOption.TopDirectoryOnly)
+                    .OrderByDescending(File.GetLastWriteTimeUtc)
+                    .FirstOrDefault()
+                : null;
+            if (latest is null)
+                throw new FileNotFoundException("No backup found. Place an opennv-save-*.zip file in " + directory);
+            var importedSlots = _catalog.ImportBackup(latest);
+            var current = _catalog.ReadSlots(includeCurrent: true)
+                .FirstOrDefault(slot => slot.Id == "current")
+                ?? throw new InvalidDataException("Imported current save could not be read back.");
+            _backupStatus.Text = $"Imported {Path.GetFileName(latest)} with {importedSlots} save slot(s).";
+            _backupStatus.AddThemeColorOverride("font_color", new Color(0.47f, 0.84f, 0.62f));
+            GetTree().Paused = false;
+            LoadRequested?.Invoke(current);
+        }
+        catch (Exception exception)
+        {
+            _backupStatus.Text = "Backup import failed: " + exception.Message;
+            _backupStatus.AddThemeColorOverride("font_color", new Color(0.86f, 0.61f, 0.33f));
+        }
     }
 
     private void LoadSelected()
