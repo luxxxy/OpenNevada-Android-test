@@ -53,7 +53,7 @@ jobs:
           GODOT_TEMPLATE_VERSION="4.8.dev7.mono"
           GODOT_TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/$GODOT_TEMPLATE_VERSION"
           mkdir -p "$RUNNER_TEMP/godot" "$GODOT_TEMPLATE_DIR"
-          curl -fL --retry 3 "https://github.com/godotengine/godot-builds/releases/download/4.8-dev7/Godot_v4.8-dev7_mono_linux_x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
+          curl -fL --retry 8 --retry-all-errors --retry-delay 3 --retry-max-time 300 "https://github.com/godotengine/godot-builds/releases/download/4.8-dev7/Godot_v4.8-dev7_mono_linux_x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
           unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
           GODOT_BIN="$(find "$RUNNER_TEMP/godot" -type f -name 'Godot*' -perm -u+x | head -n 1)"
           test -n "$GODOT_BIN"
@@ -62,7 +62,7 @@ jobs:
           sudo mkdir -p /opt/godot-mono
           sudo cp -a "$GODOT_ROOT/." /opt/godot-mono/
           sudo ln -sf "/opt/godot-mono/$(basename "$GODOT_BIN")" /usr/local/bin/godot
-          curl -fL --retry 3 "https://github.com/godotengine/godot-builds/releases/download/4.8-dev7/Godot_v4.8-dev7_mono_export_templates.tpz" -o "$RUNNER_TEMP/templates.tpz"
+          curl -fL --retry 8 --retry-all-errors --retry-delay 3 --retry-max-time 300 "https://github.com/godotengine/godot-builds/releases/download/4.8-dev7/Godot_v4.8-dev7_mono_export_templates.tpz" -o "$RUNNER_TEMP/templates.tpz"
           mkdir -p "$RUNNER_TEMP/templates"
           unzip -q "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/templates"
           test -d "$RUNNER_TEMP/templates/templates"
