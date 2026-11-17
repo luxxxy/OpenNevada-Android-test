@@ -76,10 +76,15 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             var cellMeshes = cellNodes.OfType<MeshInstance3D>().ToArray();
             var landMeshes = cellMeshes.Where(mesh => mesh.Name.ToString().Contains("land", StringComparison.OrdinalIgnoreCase) || mesh.GetPath().ToString().Contains("/LAND", StringComparison.OrdinalIgnoreCase)).ToArray();
             lines.Add($"  subtree meshes={cellMeshes.Length} static={cellNodes.OfType<StaticBody3D>().Count()} rigid={cellNodes.OfType<RigidBody3D>().Count()} LAND-named={landMeshes.Length}");
-            foreach (var mesh in (landMeshes.Length > 0 ? landMeshes : cellMeshes).Take(4))
+            var playerForMeshes = nodes.OfType<CharacterBody3D>().FirstOrDefault();
+            var inspectedMeshes = landMeshes.Length > 0 ? landMeshes : cellMeshes;
+            if (playerForMeshes is not null)
+                inspectedMeshes = inspectedMeshes.OrderBy(mesh => mesh.GlobalPosition.DistanceTo(playerForMeshes.GlobalPosition)).ToArray();
+            foreach (var mesh in inspectedMeshes.Take(8))
             {
                 var bounds = mesh.GetAabb();
-                lines.Add($"  MESH {mesh.Name} center={Vec(mesh.ToGlobal(bounds.Position + bounds.Size * 0.5f))} size={Vec(bounds.Size)}");
+                var center = mesh.ToGlobal(bounds.Position + bounds.Size * 0.5f);
+                lines.Add($"  MESH {mesh.Name} center={Vec(center)} size={Vec(bounds.Size)}");
             }
             var landBody = Descendants(cell).OfType<StaticBody3D>()
                 .FirstOrDefault(body => body.Name == "LAND_ACTIVE_SET_COLLISION");
@@ -151,10 +156,23 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             .Select(group => $"{group.Key}:{group.Count()}");
         lines.Add($"StaticBody layers: {(layerSummary.Any() ? string.Join(", ", layerSummary) : "none")}");
         lines.Add($"Scene totals: staticBodies={staticBodies.Length}, collisionShapes={shapes.Length}, meshes={nodes.OfType<MeshInstance3D>().Count()}");
-        foreach (var body in staticBodies.Take(12))
+        var diagnosticPlayer = nodes.OfType<CharacterBody3D>().FirstOrDefault();
+        var orderedStaticBodies = diagnosticPlayer is null
+            ? staticBodies
+            : staticBodies.OrderBy(body => body.GlobalPosition.DistanceTo(diagnosticPlayer.GlobalPosition)).ToArray();
+        foreach (var body in orderedStaticBodies.Take(16))
         {
-            var bodyShapes = Descendants(body).OfType<CollisionShape3D>().Count();
-            lines.Add($"BODY {body.GetPath()} layer={body.CollisionLayer} mask={body.CollisionMask} pos={Vec(body.GlobalPosition)} shapes={bodyShapes}");
+            var bodyShapes = Descendants(body).OfType<CollisionShape3D>().ToArray();
+            lines.Add($"BODY {body.GetPath()} layer={body.CollisionLayer} mask={body.CollisionMask} pos={Vec(body.GlobalPosition)} shapes={bodyShapes.Length}");
+            foreach (var shapeNode in bodyShapes.Take(3))
+            {
+                var shape = shapeNode.Shape;
+                var bounds = shape?.GetDebugMesh()?.GetAabb();
+                var worldCenter = bounds is { } box
+                    ? shapeNode.ToGlobal(box.Position + box.Size * 0.5f)
+                    : shapeNode.GlobalPosition;
+                lines.Add($"  SHAPE {shape?.GetType().Name ?? "null"} disabled={shapeNode.Disabled} center={Vec(worldCenter)}");
+            }
         }
         var rigidBodies = nodes.OfType<RigidBody3D>().ToArray();
         lines.Add($"RigidBodies={rigidBodies.Length}");
