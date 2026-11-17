@@ -153,7 +153,7 @@ internal sealed class RuntimeSaveSlotCatalog
         {
             if (entry.FullName is "manifest.json" or "current.json") continue;
             if (!entry.FullName.StartsWith("slots/", StringComparison.Ordinal) ||
-                entry.FullName.Contains('/', "slots/".Length) ||
+                entry.FullName.IndexOf('/', "slots/".Length) >= 0 ||
                 !entry.FullName.EndsWith(".json", StringComparison.Ordinal))
                 throw new InvalidDataException("Save backup contains an unexpected path.");
             var idText = Path.GetFileNameWithoutExtension(entry.FullName);
