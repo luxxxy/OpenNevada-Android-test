@@ -121,7 +121,7 @@ internal sealed partial class RuntimeCollisionDiagnosticOverlay : CanvasLayer
             var current = pending.Pop();
             yield return current;
             foreach (var child in current.GetChildren())
-                if (child is Node node) pending.Push(node);
+                pending.Push(child);
         }
     }
 
